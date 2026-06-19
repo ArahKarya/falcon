@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FALCON · Live Telemetry</title>
+<style>
+  :root{ --navy:#0F3460; --navy2:#0B1B3D; --teal:#16C79A; --cyan:#48CAE4; --dark:#16213E;
+         --bg:#0c1424; --card:#13203a; --line:#22304d; --mut:#8294ad; --amber:#F0A500; --red:#e0533f; }
+  *{ margin:0; padding:0; box-sizing:border-box; font-family:'Inter','Segoe UI',system-ui,sans-serif; }
+  body{ background:var(--bg); color:#e8eef6; min-height:100vh; }
+  .wrap{ position:relative; z-index:1; max-width:1300px; margin:0 auto; padding:20px 24px 40px; }
+
+  header{ display:flex; align-items:center; gap:14px; padding-bottom:18px; border-bottom:1px solid var(--line); }
+  .logo{ width:40px; height:40px; }
+  .brand h1{ font-size:20px; font-weight:800; letter-spacing:-.3px; }
+  .brand small{ color:var(--cyan); font-size:10px; letter-spacing:2.5px; text-transform:uppercase; font-weight:600; }
+  .status{ margin-left:auto; display:flex; align-items:center; gap:8px; font-size:12px; font-family:'JetBrains Mono',monospace; }
+  .dot{ width:8px; height:8px; border-radius:50%; background:var(--red); }
+  .dot.on{ background:var(--teal); }
+
+  .kpis{ display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:14px; margin:20px 0; }
+  .kpi{ background:var(--card); border:1px solid var(--line); border-radius:4px; padding:16px 18px; position:relative; overflow:hidden; }
+  .kpi .lbl{ font-size:10px; color:var(--mut); text-transform:uppercase; letter-spacing:1.5px; font-weight:600; }
+  .kpi .val{ font-size:30px; font-weight:800; font-family:'JetBrains Mono',monospace; margin-top:6px; color:#fff; }
+  .kpi .val.teal{ color:var(--teal); } .kpi .val.cyan{ color:var(--cyan); } .kpi .val.amber{ color:var(--amber); }
+  .kpi .sub{ font-size:11px; color:var(--mut); margin-top:2px; }
+
+  .grid{ display:grid; grid-template-columns:1.6fr 1fr; gap:18px; }
+  @media(max-width:900px){ .grid{ grid-template-columns:1fr; } }
+  .panel{ background:var(--card); border:1px solid var(--line); border-radius:4px; padding:16px 18px; }
+  .panel h2{ font-size:13px; font-weight:700; color:#fff; margin-bottom:12px; display:flex; align-items:center; gap:8px; }
+  .panel h2 .tag{ font-size:9px; background:var(--navy); color:var(--cyan); padding:2px 8px; border-radius:3px; font-family:'JetBrains Mono',monospace; }
+
+  table{ width:100%; border-collapse:collapse; font-size:12px; }
+  th{ text-align:left; color:var(--mut); font-weight:600; font-size:10px; text-transform:uppercase; letter-spacing:1px; padding:6px 8px; border-bottom:1px solid var(--line); }
+  td{ padding:7px 8px; border-bottom:1px solid #1a263f; font-family:'JetBrains Mono',monospace; font-size:11.5px; }
+  tr:hover td{ background:#172645; }
+  .badge{ font-size:9px; padding:2px 7px; border-radius:3px; font-family:'Inter'; font-weight:600; }
+  .b-active{ background:rgba(22,199,154,.18); color:var(--teal); }
+  .teid{ color:var(--cyan); }
+
+  .events{ max-height:340px; overflow-y:auto; }
+  .ev{ display:flex; align-items:center; gap:10px; padding:8px 6px; border-bottom:1px solid #1a263f; font-size:12px; }
+  .ev .ico{ width:26px; height:26px; border-radius:3px; display:flex; align-items:center; justify-content:center; flex-shrink:0; font-size:13px; }
+  .ev.create .ico{ background:rgba(22,199,154,.18); color:var(--teal); }
+  .ev.delete .ico{ background:rgba(224,83,63,.18); color:var(--red); }
+  .ev.modify .ico{ background:rgba(240,165,0,.18); color:var(--amber); }
+  .ev .meta{ flex:1; } .ev .meta b{ font-weight:600; } .ev .meta .t{ color:var(--mut); font-size:10px; font-family:'JetBrains Mono'; }
+  .ev .teid{ font-family:'JetBrains Mono'; font-size:10.5px; }
+
+  .proto{ display:flex; flex-direction:column; gap:9px; margin-top:4px; }
+  .prow{ display:flex; align-items:center; gap:10px; font-size:11px; }
+  .prow .pn{ width:52px; color:var(--mut); font-family:'JetBrains Mono'; }
+  .bar{ flex:1; height:9px; background:#1a263f; border-radius:2px; overflow:hidden; }
+  .bar i{ display:block; height:100%; border-radius:2px; transition:width .5s; }
+  .prow .pv{ width:48px; text-align:right; font-family:'JetBrains Mono'; color:#fff; }
+
+  footer{ margin-top:26px; padding-top:14px; border-top:1px solid var(--line); display:flex; justify-content:space-between; font-size:10px; color:var(--mut); }
+  footer .cyan{ color:var(--cyan); }
+  .empty{ color:var(--mut); font-size:12px; padding:14px; text-align:center; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <svg class="logo" viewBox="0 0 48 48" fill="none">
+      <path d="M24 3 42 13.5v21L24 45 6 34.5v-21L24 3Z" stroke="#48CAE4" stroke-width="2.5"/>
+      <path d="M16 30 24 16l8 14" stroke="#fff" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>
+      <path d="M20 30h8" stroke="#48CAE4" stroke-width="2.5" stroke-linecap="round"/>
+    </svg>
+    <div class="brand">
+      <h1>FALCON <span style="color:var(--cyan)">Live Telemetry</span></h1>
+      <small>Arah Karya Sinergi · GTP-U DPI Engine</small>
+    </div>
+    <div class="status"><span class="dot" id="dot"></span><span id="conn">menyambung…</span></div>
+  </header>
+
+  <div class="kpis">
+    <div class="kpi"><div class="lbl">IMSI Aktif</div><div class="val cyan" id="k-imsi">—</div><div class="sub">pengguna terdeteksi</div></div>
+    <div class="kpi"><div class="lbl">Uplink</div><div class="val teal" id="k-ul">—</div><div class="sub">paket / detik</div></div>
+    <div class="kpi"><div class="lbl">Downlink</div><div class="val" id="k-dl">—</div><div class="sub">paket / detik</div></div>
+    <div class="kpi"><div class="lbl">Sesi Aktif</div><div class="val" id="k-teid">—</div><div class="sub">TEID</div></div>
+    <div class="kpi"><div class="lbl">Drop</div><div class="val amber" id="k-drop">—</div><div class="sub">paket hilang</div></div>
+    <div class="kpi"><div class="lbl">Throughput</div><div class="val" id="k-bw">—</div><div class="sub">akumulasi</div></div>
+  </div>
+
+  <div class="grid">
+    <div class="panel">
+      <h2>Sesi Aktif (Per-TEID) <span class="tag" id="teid-count">0</span></h2>
+      <div style="max-height:380px;overflow-y:auto">
+        <table>
+          <thead><tr><th>TEID</th><th>IMSI</th><th>QFI</th><th>UL pkts</th><th>DL pkts</th><th>State</th></tr></thead>
+          <tbody id="teid-body"><tr><td colspan="6" class="empty">menunggu data…</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+    <div>
+      <div class="panel" style="margin-bottom:18px">
+        <h2>Distribusi Protokol <span class="tag">0x04</span></h2>
+        <div class="proto" id="proto"></div>
+      </div>
+      <div class="panel">
+        <h2>Event Real-time <span class="tag">0x03</span></h2>
+        <div class="events" id="events"><div class="empty">menunggu event…</div></div>
+      </div>
+    </div>
+  </div>
+
+  <footer>
+    <span>Arah Karya Sinergi (AKS) · <span class="cyan">FALCON</span> — FPGA-Accelerated Live Core Observation Node</span>
+    <span id="stat">msg: 0 · err: 0</span>
+  </footer>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const fmt = n => (n==null?'—':Number(n).toLocaleString('id-ID'));
+const fmtBytes = b => { if(b==null)return'—'; const u=['B','KB','MB','GB','TB']; let i=0; b=Number(b); while(b>=1024&&i<u.length-1){b/=1024;i++;} return b.toFixed(1)+' '+u[i]; };
+const PCOL = {gtp_u:'#16C79A', gtp_c:'#48CAE4', pfcp:'#F0A500', bssgp:'#9be8f7', other:'#5b6b7d'};
+
+let teidMap = {};
+
+function renderGlobal(d){
+  $('k-imsi').textContent = fmt(d.total_imsi);
+  $('k-ul').textContent   = fmt(d.uplink_pps);
+  $('k-dl').textContent   = fmt(d.downlink_pps);
+  $('k-teid').textContent = fmt(d.active_teid);
+  $('k-drop').textContent = fmt(d.drop_count);
+  $('k-bw').textContent   = fmtBytes(d.total_bytes);
+}
+function renderProtocol(d){
+  const order=['gtp_u','gtp_c','pfcp','bssgp','other'];
+  $('proto').innerHTML = order.map(k=>{
+    const v=d[k]||0;
+    return `<div class="prow"><span class="pn">${k}</span><div class="bar"><i style="width:${v}%;background:${PCOL[k]}"></i></div><span class="pv">${v.toFixed(1)}%</span></div>`;
+  }).join('');
+}
+function upsertTeid(d){
+  teidMap[d.teid] = {...d, _t:Date.now()};
+  renderTeids();
+}
+function renderTeids(){
+  const rows = Object.values(teidMap);
+  $('teid-count').textContent = rows.length;
+  if(!rows.length){ $('teid-body').innerHTML='<tr><td colspan="6" class="empty">menunggu data…</td></tr>'; return; }
+  $('teid-body').innerHTML = rows.slice(0,40).map(d=>`<tr>
+    <td class="teid">${d.teid}</td><td>${d.imsi}</td><td>${d.qfi}</td>
+    <td>${fmt(d.ul_pkts)}</td><td>${fmt(d.dl_pkts)}</td>
+    <td><span class="badge b-active">${d.state}</span></td></tr>`).join('');
+}
+const EVICO={CreateSession:['create','+'],DeleteSession:['delete','×'],ModifySession:['modify','~'],Error:['delete','!']};
+function addEvent(d){
+  const box=$('events'); if(box.querySelector('.empty')) box.innerHTML='';
+  const [cls,ico]=EVICO[d.event]||['modify','•'];
+  const el=document.createElement('div'); el.className='ev '+cls;
+  el.innerHTML=`<div class="ico">${ico}</div><div class="meta"><b>${d.event}</b> <span class="teid">${d.teid}</span><div class="t">${d.direction} · ${d.packet_len}B · ${new Date((d.ts||0)*1000).toLocaleTimeString('id-ID')}</div></div>`;
+  box.prepend(el);
+  while(box.children.length>30) box.removeChild(box.lastChild);
+}
+
+function handle(msg){
+  if(msg.type==='snapshot'){
+    const s=msg.data;
+    if(s.global&&s.global.total_imsi!=null) renderGlobal(s.global);
+    if(s.protocol&&s.protocol.gtp_u!=null) renderProtocol(s.protocol);
+    (s.teid||[]).forEach(upsertTeid);
+    (s.events||[]).slice().reverse().forEach(addEvent);
+    $('stat').textContent=`msg: ${s.msg_count} · err: ${s.err_count}`;
+    return;
+  }
+  if(msg.type==='global') renderGlobal(msg.data);
+  else if(msg.type==='protocol') renderProtocol(msg.data);
+  else if(msg.type==='teid') upsertTeid(msg.data);
+  else if(msg.type==='event') addEvent(msg.data);
+}
+
+// expire sesi stale tiap 5s
+setInterval(()=>{ const now=Date.now(); let ch=false;
+  for(const k in teidMap){ if(now-teidMap[k]._t>15000){ delete teidMap[k]; ch=true; } }
+  if(ch) renderTeids();
+}, 5000);
+
+let ws, retry=0;
+function connect(){
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  ws=new WebSocket(`${proto}://${location.host}/ws`);
+  ws.onopen=()=>{ retry=0; $('dot').classList.add('on'); $('conn').textContent='terhubung'; };
+  ws.onmessage=e=>{ try{ handle(JSON.parse(e.data)); }catch(err){} };
+  ws.onclose=()=>{ $('dot').classList.remove('on'); $('conn').textContent='terputus — reconnect…'; retry++; setTimeout(connect, Math.min(retry*1000,5000)); };
+  ws.onerror=()=>ws.close();
+}
+connect();
+</script>
+</body>
+</html>
