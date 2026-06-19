@@ -22,8 +22,11 @@ state = {
     "global": {}, "protocol": {},
     "teid": {},                      # teid -> latest dict
     "events": collections.deque(maxlen=100),
+    "history": collections.deque(maxlen=120),   # ring-buffer global stats utk sparkline (~120 titik)
+    "evt_counter": {"CreateSession": 0, "ModifySession": 0, "DeleteSession": 0, "Error": 0},
     "started": time.time(), "msg_count": 0, "err_count": 0,
 }
+VERSION = "1.1.0"
 TEID_TTL = 15  # detik; sesi tak update dianggap mati
 ws_clients = set()
 
@@ -45,7 +48,16 @@ async def broadcast(msg: dict):
 def update_state(msg: dict):
     t = msg["type"]
     if t == "global":
-        state["global"] = {**msg["data"], "ts": msg.get("ts")}
+        g = {**msg["data"], "ts": msg.get("ts")}
+        state["global"] = g
+        # rekam histori ringan utk sparkline (UL/DL/throughput/drop)
+        state["history"].append({
+            "ts": g.get("ts") or int(time.time()),
+            "ul": g.get("uplink_pps", 0),
+            "dl": g.get("downlink_pps", 0),
+            "bytes": g.get("total_bytes", 0),
+            "drop": g.get("drop_count", 0),
+        })
     elif t == "protocol":
         state["protocol"] = {**msg["data"], "ts": msg.get("ts", int(time.time()))}
     elif t == "teid":
@@ -54,6 +66,9 @@ def update_state(msg: dict):
     elif t == "event":
         ev = {**msg["data"], "ts": msg.get("ts")}
         state["events"].appendleft(ev)
+        name = ev.get("event")
+        if name in state["evt_counter"]:
+            state["evt_counter"][name] += 1
 
 
 def expire_teids():
@@ -77,6 +92,8 @@ class TelemetryProto(asyncio.DatagramProtocol):
         # strip internal field sebelum kirim
         if msg["type"] == "teid":
             msg["data"] = {k: v for k, v in msg["data"].items() if not k.startswith("_")}
+        elif msg["type"] == "event":
+            msg["counter"] = dict(state["evt_counter"])   # sertakan counter terkini
         asyncio.ensure_future(broadcast(msg))
 
 
@@ -103,9 +120,12 @@ def snapshot():
         "teid": [{k: v for k, v in d.items() if not k.startswith("_")}
                  for d in state["teid"].values()],
         "events": list(state["events"])[:20],
+        "history": list(state["history"]),
+        "evt_counter": state["evt_counter"],
         "uptime_s": int(time.time() - state["started"]),
         "msg_count": state["msg_count"], "err_count": state["err_count"],
         "ws_clients": len(ws_clients),
+        "version": VERSION,
     }
 
 
@@ -117,6 +137,9 @@ async def api_events(r):
     return web.json_response(list(state["events"])[:lim])
 async def api_protocol(r): return web.json_response(state["protocol"])
 async def api_snapshot(r): return web.json_response(snapshot())
+async def api_history(r):  return web.json_response(list(state["history"]))
+async def api_evtcounter(r): return web.json_response(state["evt_counter"])
+async def api_version(r):  return web.json_response({"name": "FALCON", "version": VERSION, "udp_port": UDP_PORT, "http_port": HTTP_PORT})
 
 
 async def index(r):
@@ -145,6 +168,9 @@ def make_app():
         web.get("/api/events", api_events),
         web.get("/api/stats/protocol", api_protocol),
         web.get("/api/snapshot", api_snapshot),
+        web.get("/api/history", api_history),
+        web.get("/api/events/counter", api_evtcounter),
+        web.get("/api/version", api_version),
     ])
     if os.path.isdir(DASH_DIR):
         app.router.add_static("/static/", DASH_DIR)

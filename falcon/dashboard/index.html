@@ -9,38 +9,69 @@
          --bg:#0c1424; --card:#13203a; --line:#22304d; --mut:#8294ad; --amber:#F0A500; --red:#e0533f; }
   *{ margin:0; padding:0; box-sizing:border-box; font-family:'Inter','Segoe UI',system-ui,sans-serif; }
   body{ background:var(--bg); color:#e8eef6; min-height:100vh; }
-  .wrap{ position:relative; z-index:1; max-width:1300px; margin:0 auto; padding:20px 24px 40px; }
+  body.compact .kpi{ padding:10px 12px; } body.compact .kpi .val{ font-size:22px; }
+  body.compact .panel{ padding:12px 14px; } body.compact td{ padding:4px 8px; }
+  .wrap{ position:relative; z-index:1; max-width:1320px; margin:0 auto; padding:20px 24px 40px; }
 
   header{ display:flex; align-items:center; gap:14px; padding-bottom:18px; border-bottom:1px solid var(--line); }
   .logo{ width:40px; height:40px; }
   .brand h1{ font-size:20px; font-weight:800; letter-spacing:-.3px; }
   .brand small{ color:var(--cyan); font-size:10px; letter-spacing:2.5px; text-transform:uppercase; font-weight:600; }
-  .status{ margin-left:auto; display:flex; align-items:center; gap:8px; font-size:12px; font-family:'JetBrains Mono',monospace; }
+  .status{ margin-left:auto; display:flex; align-items:center; gap:14px; font-size:12px; font-family:'JetBrains Mono',monospace; }
+  .conn-wrap{ display:flex; align-items:center; gap:8px; }
   .dot{ width:8px; height:8px; border-radius:50%; background:var(--red); }
   .dot.on{ background:var(--teal); }
+  .hbtn{ background:var(--card); border:1px solid var(--line); color:var(--mut); width:32px; height:32px; border-radius:4px;
+         display:flex; align-items:center; justify-content:center; cursor:pointer; transition:.15s; }
+  .hbtn:hover{ color:#fff; border-color:var(--cyan); }
+  .hbtn.active{ color:var(--teal); border-color:var(--teal); }
 
   .kpis{ display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:14px; margin:20px 0; }
   .kpi{ background:var(--card); border:1px solid var(--line); border-radius:4px; padding:16px 18px; position:relative; overflow:hidden; }
+  .kpi.hidden{ display:none; }
+  .kpi.alarm{ border-color:var(--red); background:rgba(224,83,63,.10); }
   .kpi .lbl{ font-size:10px; color:var(--mut); text-transform:uppercase; letter-spacing:1.5px; font-weight:600; }
   .kpi .val{ font-size:30px; font-weight:800; font-family:'JetBrains Mono',monospace; margin-top:6px; color:#fff; }
   .kpi .val.teal{ color:var(--teal); } .kpi .val.cyan{ color:var(--cyan); } .kpi .val.amber{ color:var(--amber); }
+  .kpi.alarm .val{ color:var(--red); }
   .kpi .sub{ font-size:11px; color:var(--mut); margin-top:2px; }
+  .kpi .spark{ position:absolute; right:8px; bottom:8px; width:64px; height:22px; opacity:.85; }
 
   .grid{ display:grid; grid-template-columns:1.6fr 1fr; gap:18px; }
   @media(max-width:900px){ .grid{ grid-template-columns:1fr; } }
   .panel{ background:var(--card); border:1px solid var(--line); border-radius:4px; padding:16px 18px; }
+  .panel.hidden{ display:none; }
   .panel h2{ font-size:13px; font-weight:700; color:#fff; margin-bottom:12px; display:flex; align-items:center; gap:8px; }
   .panel h2 .tag{ font-size:9px; background:var(--navy); color:var(--cyan); padding:2px 8px; border-radius:3px; font-family:'JetBrains Mono',monospace; }
+  .panel h2 .spacer{ flex:1; }
+
+  .toolbar{ display:flex; gap:8px; align-items:center; margin-bottom:10px; flex-wrap:wrap; }
+  .toolbar input, .toolbar select{ background:var(--bg); border:1px solid var(--line); color:#e8eef6; font-size:11px;
+        padding:5px 8px; border-radius:4px; font-family:'JetBrains Mono',monospace; outline:none; }
+  .toolbar input:focus, .toolbar select:focus{ border-color:var(--cyan); }
+  .toolbar input.search{ flex:1; min-width:120px; }
+  .toolbar .cnt{ font-size:10px; color:var(--mut); font-family:'JetBrains Mono',monospace; }
 
   table{ width:100%; border-collapse:collapse; font-size:12px; }
-  th{ text-align:left; color:var(--mut); font-weight:600; font-size:10px; text-transform:uppercase; letter-spacing:1px; padding:6px 8px; border-bottom:1px solid var(--line); }
+  th{ text-align:left; color:var(--mut); font-weight:600; font-size:10px; text-transform:uppercase; letter-spacing:1px; padding:6px 8px; border-bottom:1px solid var(--line); cursor:pointer; user-select:none; white-space:nowrap; }
+  th:hover{ color:var(--cyan); }
+  th .arr{ color:var(--cyan); font-size:9px; }
   td{ padding:7px 8px; border-bottom:1px solid #1a263f; font-family:'JetBrains Mono',monospace; font-size:11.5px; }
+  tbody tr{ cursor:pointer; }
   tr:hover td{ background:#172645; }
   .badge{ font-size:9px; padding:2px 7px; border-radius:3px; font-family:'Inter'; font-weight:600; }
   .b-active{ background:rgba(22,199,154,.18); color:var(--teal); }
+  .b-create{ background:rgba(22,199,154,.18); color:var(--teal); }
+  .b-delete{ background:rgba(224,83,63,.18); color:var(--red); }
   .teid{ color:var(--cyan); }
 
-  .events{ max-height:340px; overflow-y:auto; }
+  .evcount{ display:grid; grid-template-columns:repeat(4,1fr); gap:8px; margin-bottom:12px; }
+  .evc{ background:var(--bg); border:1px solid var(--line); border-radius:4px; padding:8px 6px; text-align:center; }
+  .evc .n{ font-size:18px; font-weight:800; font-family:'JetBrains Mono',monospace; }
+  .evc .l{ font-size:8.5px; color:var(--mut); text-transform:uppercase; letter-spacing:.5px; margin-top:2px; }
+  .evc.create .n{ color:var(--teal); } .evc.modify .n{ color:var(--amber); } .evc.delete .n{ color:var(--red); } .evc.error .n{ color:var(--red); }
+
+  .events{ max-height:300px; overflow-y:auto; }
   .ev{ display:flex; align-items:center; gap:10px; padding:8px 6px; border-bottom:1px solid #1a263f; font-size:12px; }
   .ev .ico{ width:26px; height:26px; border-radius:3px; display:flex; align-items:center; justify-content:center; flex-shrink:0; font-size:13px; }
   .ev.create .ico{ background:rgba(22,199,154,.18); color:var(--teal); }
@@ -56,9 +87,48 @@
   .bar i{ display:block; height:100%; border-radius:2px; transition:width .5s; }
   .prow .pv{ width:48px; text-align:right; font-family:'JetBrains Mono'; color:#fff; }
 
-  footer{ margin-top:26px; padding-top:14px; border-top:1px solid var(--line); display:flex; justify-content:space-between; font-size:10px; color:var(--mut); }
+  footer{ margin-top:26px; padding-top:14px; border-top:1px solid var(--line); display:flex; justify-content:space-between; font-size:10px; color:var(--mut); flex-wrap:wrap; gap:6px; }
   footer .cyan{ color:var(--cyan); }
   .empty{ color:var(--mut); font-size:12px; padding:14px; text-align:center; }
+
+  /* drawer settings */
+  .scrim{ position:fixed; inset:0; background:rgba(5,9,18,.6); z-index:50; display:none; }
+  .scrim.open{ display:block; }
+  .drawer{ position:fixed; top:0; right:0; height:100%; width:360px; max-width:92vw; background:var(--card);
+           border-left:1px solid var(--line); z-index:51; transform:translateX(100%); transition:transform .22s; overflow-y:auto; }
+  .drawer.open{ transform:translateX(0); }
+  .drawer .dh{ display:flex; align-items:center; padding:16px 18px; border-bottom:1px solid var(--line); }
+  .drawer .dh h3{ font-size:14px; font-weight:700; } .drawer .dh .x{ margin-left:auto; cursor:pointer; color:var(--mut); font-size:20px; }
+  .drawer .dh .x:hover{ color:#fff; }
+  .sect{ padding:14px 18px; border-bottom:1px solid var(--line); }
+  .sect h4{ font-size:10px; color:var(--cyan); text-transform:uppercase; letter-spacing:1.5px; margin-bottom:10px; font-weight:600; }
+  .frow{ display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:10px; font-size:12px; }
+  .frow label{ color:#cdd8e6; }
+  .frow input[type=number], .frow input[type=text]{ width:96px; background:var(--bg); border:1px solid var(--line); color:#e8eef6;
+        font-size:11px; padding:5px 8px; border-radius:4px; font-family:'JetBrains Mono',monospace; outline:none; text-align:right; }
+  .frow input:focus{ border-color:var(--cyan); }
+  /* toggle switch flat */
+  .sw{ position:relative; width:38px; height:20px; flex-shrink:0; }
+  .sw input{ opacity:0; width:0; height:0; }
+  .sw span{ position:absolute; inset:0; background:var(--bg); border:1px solid var(--line); border-radius:11px; transition:.15s; }
+  .sw span::before{ content:""; position:absolute; width:14px; height:14px; left:2px; top:2px; background:var(--mut); border-radius:50%; transition:.15s; }
+  .sw input:checked + span{ background:rgba(22,199,154,.25); border-color:var(--teal); }
+  .sw input:checked + span::before{ transform:translateX(18px); background:var(--teal); }
+  .dbtn{ width:100%; padding:9px; background:var(--bg); border:1px solid var(--line); color:#cdd8e6; border-radius:4px;
+         font-size:11px; cursor:pointer; transition:.15s; font-weight:600; }
+  .dbtn:hover{ border-color:var(--red); color:var(--red); }
+
+  /* modal detail TEID */
+  .modal{ position:fixed; inset:0; background:rgba(5,9,18,.65); z-index:60; display:none; align-items:center; justify-content:center; }
+  .modal.open{ display:flex; }
+  .mbox{ background:var(--card); border:1px solid var(--line); border-radius:4px; width:420px; max-width:92vw; }
+  .mbox .mh{ display:flex; align-items:center; padding:14px 18px; border-bottom:1px solid var(--line); }
+  .mbox .mh h3{ font-size:14px; font-weight:700; } .mbox .mh .x{ margin-left:auto; cursor:pointer; color:var(--mut); font-size:20px; }
+  .mbox .mb{ padding:14px 18px; }
+  .kv{ display:flex; justify-content:space-between; padding:7px 0; border-bottom:1px solid #1a263f; font-size:12px; }
+  .kv .k{ color:var(--mut); } .kv .v{ font-family:'JetBrains Mono',monospace; color:#fff; }
+  .pausebar{ background:var(--amber); color:#15203a; font-size:11px; font-weight:700; text-align:center; padding:5px; border-radius:4px; margin-bottom:14px; display:none; }
+  .pausebar.show{ display:block; }
 </style>
 </head>
 <body>
@@ -73,35 +143,59 @@
       <h1>FALCON <span style="color:var(--cyan)">Live Telemetry</span></h1>
       <small>Arah Karya Sinergi · GTP-U DPI Engine</small>
     </div>
-    <div class="status"><span class="dot" id="dot"></span><span id="conn">menyambung…</span></div>
+    <div class="status">
+      <span class="conn-wrap"><span class="dot" id="dot"></span><span id="conn">menyambung…</span></span>
+      <span class="hbtn" id="btn-pause" title="Pause / Resume stream">⏸</span>
+      <span class="hbtn" id="btn-settings" title="Pengaturan">⚙</span>
+    </div>
   </header>
 
-  <div class="kpis">
-    <div class="kpi"><div class="lbl">IMSI Aktif</div><div class="val cyan" id="k-imsi">—</div><div class="sub">pengguna terdeteksi</div></div>
-    <div class="kpi"><div class="lbl">Uplink</div><div class="val teal" id="k-ul">—</div><div class="sub">paket / detik</div></div>
-    <div class="kpi"><div class="lbl">Downlink</div><div class="val" id="k-dl">—</div><div class="sub">paket / detik</div></div>
-    <div class="kpi"><div class="lbl">Sesi Aktif</div><div class="val" id="k-teid">—</div><div class="sub">TEID</div></div>
-    <div class="kpi"><div class="lbl">Drop</div><div class="val amber" id="k-drop">—</div><div class="sub">paket hilang</div></div>
-    <div class="kpi"><div class="lbl">Throughput</div><div class="val" id="k-bw">—</div><div class="sub">akumulasi</div></div>
+  <div class="pausebar" id="pausebar">⏸ STREAM DIJEDA — tampilan dibekukan untuk inspeksi. Klik ⏸ untuk lanjut.</div>
+
+  <div class="kpis" id="kpis">
+    <div class="kpi" data-k="imsi"><div class="lbl">IMSI Aktif</div><div class="val cyan" id="k-imsi">—</div><div class="sub">pengguna terdeteksi</div></div>
+    <div class="kpi" data-k="ul"><div class="lbl">Uplink</div><div class="val teal" id="k-ul">—</div><div class="sub">paket / detik</div><svg class="spark" id="sp-ul" viewBox="0 0 64 22" preserveAspectRatio="none"></svg></div>
+    <div class="kpi" data-k="dl"><div class="lbl">Downlink</div><div class="val" id="k-dl">—</div><div class="sub">paket / detik</div><svg class="spark" id="sp-dl" viewBox="0 0 64 22" preserveAspectRatio="none"></svg></div>
+    <div class="kpi" data-k="teid"><div class="lbl">Sesi Aktif</div><div class="val" id="k-teid">—</div><div class="sub">TEID</div></div>
+    <div class="kpi" data-k="drop"><div class="lbl">Drop</div><div class="val amber" id="k-drop">—</div><div class="sub">paket hilang</div></div>
+    <div class="kpi" data-k="bw"><div class="lbl">Throughput</div><div class="val" id="k-bw">—</div><div class="sub">akumulasi</div><svg class="spark" id="sp-bw" viewBox="0 0 64 22" preserveAspectRatio="none"></svg></div>
   </div>
 
   <div class="grid">
-    <div class="panel">
+    <div class="panel" id="p-teid">
       <h2>Sesi Aktif (Per-TEID) <span class="tag" id="teid-count">0</span></h2>
-      <div style="max-height:380px;overflow-y:auto">
+      <div class="toolbar">
+        <input class="search" id="f-search" placeholder="cari TEID / IMSI…">
+        <select id="f-qfi"><option value="">Semua QFI</option></select>
+        <span class="cnt" id="f-count"></span>
+      </div>
+      <div style="max-height:360px;overflow-y:auto">
         <table>
-          <thead><tr><th>TEID</th><th>IMSI</th><th>QFI</th><th>UL pkts</th><th>DL pkts</th><th>State</th></tr></thead>
+          <thead><tr>
+            <th data-s="teid">TEID <span class="arr" data-a="teid"></span></th>
+            <th data-s="imsi">IMSI <span class="arr" data-a="imsi"></span></th>
+            <th data-s="qfi">QFI <span class="arr" data-a="qfi"></span></th>
+            <th data-s="ul_pkts">UL pkts <span class="arr" data-a="ul_pkts"></span></th>
+            <th data-s="dl_pkts">DL pkts <span class="arr" data-a="dl_pkts"></span></th>
+            <th data-s="state">State <span class="arr" data-a="state"></span></th>
+          </tr></thead>
           <tbody id="teid-body"><tr><td colspan="6" class="empty">menunggu data…</td></tr></tbody>
         </table>
       </div>
     </div>
     <div>
-      <div class="panel" style="margin-bottom:18px">
+      <div class="panel" id="p-proto" style="margin-bottom:18px">
         <h2>Distribusi Protokol <span class="tag">0x04</span></h2>
         <div class="proto" id="proto"></div>
       </div>
-      <div class="panel">
-        <h2>Event Real-time <span class="tag">0x03</span></h2>
+      <div class="panel" id="p-event">
+        <h2>Event Real-time <span class="tag">0x03</span><span class="spacer"></span></h2>
+        <div class="evcount">
+          <div class="evc create"><div class="n" id="ec-create">0</div><div class="l">Create</div></div>
+          <div class="evc modify"><div class="n" id="ec-modify">0</div><div class="l">Modify</div></div>
+          <div class="evc delete"><div class="n" id="ec-delete">0</div><div class="l">Delete</div></div>
+          <div class="evc error"><div class="n" id="ec-error">0</div><div class="l">Error</div></div>
+        </div>
         <div class="events" id="events"><div class="empty">menunggu event…</div></div>
       </div>
     </div>
@@ -113,21 +207,101 @@
   </footer>
 </div>
 
+<!-- Drawer Settings -->
+<div class="scrim" id="scrim"></div>
+<div class="drawer" id="drawer">
+  <div class="dh"><h3>⚙ Pengaturan</h3><span class="x" id="d-close">×</span></div>
+
+  <div class="sect">
+    <h4>Ambang Alarm</h4>
+    <div class="frow"><label>Drop maks</label><input type="number" id="th-drop" min="0"></div>
+    <div class="frow"><label>Uplink pps maks</label><input type="number" id="th-ul" min="0"></div>
+    <div class="frow"><label>Downlink pps maks</label><input type="number" id="th-dl" min="0"></div>
+    <div class="frow"><label>Error count maks</label><input type="number" id="th-err" min="0"></div>
+    <div class="frow"><label>Bunyi saat alarm/Error</label><span class="sw"><input type="checkbox" id="opt-sound"><span></span></span></div>
+  </div>
+
+  <div class="sect">
+    <h4>Stream & Sesi</h4>
+    <div class="frow"><label>TTL sesi (detik)</label><input type="number" id="opt-ttl" min="3"></div>
+    <div class="frow"><label>Maks baris tabel</label><input type="number" id="opt-rows" min="5"></div>
+    <div class="frow"><label>Maks event tampil</label><input type="number" id="opt-evmax" min="5"></div>
+  </div>
+
+  <div class="sect">
+    <h4>Tampilan</h4>
+    <div class="frow"><label>Mode compact</label><span class="sw"><input type="checkbox" id="opt-compact"><span></span></span></div>
+    <div class="frow"><label>Panel: Sesi TEID</label><span class="sw"><input type="checkbox" id="pan-teid" checked><span></span></span></div>
+    <div class="frow"><label>Panel: Protokol</label><span class="sw"><input type="checkbox" id="pan-proto" checked><span></span></span></div>
+    <div class="frow"><label>Panel: Event</label><span class="sw"><input type="checkbox" id="pan-event" checked><span></span></span></div>
+    <div class="frow"><label>KPI: sparkline</label><span class="sw"><input type="checkbox" id="opt-spark" checked><span></span></span></div>
+  </div>
+
+  <div class="sect">
+    <button class="dbtn" id="d-reset">Reset ke Default</button>
+  </div>
+  <div class="sect" style="border:none">
+    <div style="font-size:10px;color:var(--mut);font-family:'JetBrains Mono'">FALCON <span id="d-ver">—</span> · pengaturan disimpan di browser ini (localStorage)</div>
+  </div>
+</div>
+
+<!-- Modal Detail TEID -->
+<div class="modal" id="modal">
+  <div class="mbox">
+    <div class="mh"><h3>Detail Sesi <span class="teid" id="m-teid"></span></h3><span class="x" id="m-close">×</span></div>
+    <div class="mb" id="m-body"></div>
+  </div>
+</div>
+
 <script>
 const $ = id => document.getElementById(id);
 const fmt = n => (n==null?'—':Number(n).toLocaleString('id-ID'));
 const fmtBytes = b => { if(b==null)return'—'; const u=['B','KB','MB','GB','TB']; let i=0; b=Number(b); while(b>=1024&&i<u.length-1){b/=1024;i++;} return b.toFixed(1)+' '+u[i]; };
 const PCOL = {gtp_u:'#16C79A', gtp_c:'#48CAE4', pfcp:'#F0A500', bssgp:'#9be8f7', other:'#5b6b7d'};
 
-let teidMap = {};
+// ---- Konfigurasi (localStorage) ----
+const DEFAULTS = {
+  thDrop:50, thUl:0, thDl:0, thErr:10, sound:false,
+  ttl:15, rows:40, evmax:30,
+  compact:false, panTeid:true, panProto:true, panEvent:true, spark:true,
+};
+let cfg = loadCfg();
+function loadCfg(){ try{ return {...DEFAULTS, ...JSON.parse(localStorage.getItem('falcon.cfg')||'{}')}; }catch(e){ return {...DEFAULTS}; } }
+function saveCfg(){ localStorage.setItem('falcon.cfg', JSON.stringify(cfg)); }
 
+// ---- State ----
+let teidMap = {}, paused = false, lastGlobal = {}, lastErr = 0;
+let sort = {key:'ul_pkts', dir:-1};
+let hist = {ul:[], dl:[], bw:[]};   // sparkline buffer
+
+// ---- KPI + alarm ----
 function renderGlobal(d){
+  lastGlobal = d;
   $('k-imsi').textContent = fmt(d.total_imsi);
   $('k-ul').textContent   = fmt(d.uplink_pps);
   $('k-dl').textContent   = fmt(d.downlink_pps);
   $('k-teid').textContent = fmt(d.active_teid);
   $('k-drop').textContent = fmt(d.drop_count);
   $('k-bw').textContent   = fmtBytes(d.total_bytes);
+  pushHist('ul', d.uplink_pps); pushHist('dl', d.downlink_pps); pushHist('bw', d.total_bytes);
+  drawSpark('sp-ul', hist.ul, '#16C79A'); drawSpark('sp-dl', hist.dl, '#48CAE4'); drawSpark('sp-bw', hist.bw, '#9be8f7');
+  checkAlarms(d);
+}
+function pushHist(k, v){ if(v==null)return; hist[k].push(Number(v)); if(hist[k].length>40) hist[k].shift(); }
+function drawSpark(id, arr, col){
+  const el=$(id); if(!cfg.spark||arr.length<2){ el.innerHTML=''; return; }
+  const mn=Math.min(...arr), mx=Math.max(...arr), rng=(mx-mn)||1, W=64, H=22;
+  const pts=arr.map((v,i)=>`${(i/(arr.length-1)*W).toFixed(1)},${(H-((v-mn)/rng)*(H-3)-1.5).toFixed(1)}`).join(' ');
+  el.innerHTML=`<polyline points="${pts}" fill="none" stroke="${col}" stroke-width="1.3"/>`;
+}
+function alarmKpi(k, on){ const el=document.querySelector(`.kpi[data-k="${k}"]`); if(el) el.classList.toggle('alarm', !!on); }
+function checkAlarms(d){
+  let any=false;
+  const set=(k,cond)=>{ alarmKpi(k,cond); if(cond)any=true; };
+  set('drop', cfg.thDrop>0 && d.drop_count>=cfg.thDrop);
+  set('ul',   cfg.thUl>0   && d.uplink_pps>=cfg.thUl);
+  set('dl',   cfg.thDl>0   && d.downlink_pps>=cfg.thDl);
+  if(any && cfg.sound) beep();
 }
 function renderProtocol(d){
   const order=['gtp_u','gtp_c','pfcp','bssgp','other'];
@@ -136,19 +310,53 @@ function renderProtocol(d){
     return `<div class="prow"><span class="pn">${k}</span><div class="bar"><i style="width:${v}%;background:${PCOL[k]}"></i></div><span class="pv">${v.toFixed(1)}%</span></div>`;
   }).join('');
 }
-function upsertTeid(d){
-  teidMap[d.teid] = {...d, _t:Date.now()};
-  renderTeids();
-}
+
+// ---- TEID tabel: filter + sort + detail ----
+function upsertTeid(d){ teidMap[d.teid] = {...d, _t:Date.now()}; renderTeids(); }
 function renderTeids(){
-  const rows = Object.values(teidMap);
-  $('teid-count').textContent = rows.length;
-  if(!rows.length){ $('teid-body').innerHTML='<tr><td colspan="6" class="empty">menunggu data…</td></tr>'; return; }
-  $('teid-body').innerHTML = rows.slice(0,40).map(d=>`<tr>
+  let rows = Object.values(teidMap);
+  const total = rows.length;
+  $('teid-count').textContent = total;
+  // filter QFI
+  populateQfi(rows);
+  const q = $('f-search').value.trim().toLowerCase();
+  const qfi = $('f-qfi').value;
+  if(q) rows = rows.filter(r => String(r.teid).toLowerCase().includes(q) || String(r.imsi).toLowerCase().includes(q));
+  if(qfi!=='') rows = rows.filter(r => String(r.qfi)===qfi);
+  // sort
+  const {key,dir}=sort;
+  rows.sort((a,b)=>{ let x=a[key],y=b[key];
+    if(key==='ul_pkts'||key==='dl_pkts'||key==='qfi'){ x=Number(x); y=Number(y); }
+    else { x=String(x); y=String(y); }
+    return x<y?-1*dir : x>y?1*dir : 0; });
+  $('f-count').textContent = (q||qfi!=='') ? `${rows.length}/${total}` : '';
+  if(!rows.length){ $('teid-body').innerHTML='<tr><td colspan="6" class="empty">'+(total?'tak ada hasil filter':'menunggu data…')+'</td></tr>'; return; }
+  $('teid-body').innerHTML = rows.slice(0,cfg.rows).map(d=>`<tr data-teid="${d.teid}">
     <td class="teid">${d.teid}</td><td>${d.imsi}</td><td>${d.qfi}</td>
     <td>${fmt(d.ul_pkts)}</td><td>${fmt(d.dl_pkts)}</td>
     <td><span class="badge b-active">${d.state}</span></td></tr>`).join('');
 }
+let qfiSeen='';
+function populateQfi(rows){
+  const set=[...new Set(rows.map(r=>String(r.qfi)))].sort((a,b)=>a-b);
+  const key=set.join(',');
+  if(key===qfiSeen) return; qfiSeen=key;
+  const cur=$('f-qfi').value;
+  $('f-qfi').innerHTML='<option value="">Semua QFI</option>'+set.map(q=>`<option value="${q}">QFI ${q}</option>`).join('');
+  $('f-qfi').value=cur;
+}
+function showDetail(teid){
+  const d=teidMap[teid]; if(!d)return;
+  $('m-teid').textContent=teid;
+  const kv=(k,v)=>`<div class="kv"><span class="k">${k}</span><span class="v">${v}</span></div>`;
+  $('m-body').innerHTML =
+    kv('TEID', d.teid) + kv('IMSI', d.imsi) + kv('QFI', d.qfi) +
+    kv('Uplink pkts', fmt(d.ul_pkts)) + kv('Downlink pkts', fmt(d.dl_pkts)) +
+    kv('State', d.state) + kv('Terakhir update', new Date(d._t).toLocaleTimeString('id-ID'));
+  $('modal').classList.add('open');
+}
+
+// ---- Event feed + counter ----
 const EVICO={CreateSession:['create','+'],DeleteSession:['delete','×'],ModifySession:['modify','~'],Error:['delete','!']};
 function addEvent(d){
   const box=$('events'); if(box.querySelector('.empty')) box.innerHTML='';
@@ -156,15 +364,29 @@ function addEvent(d){
   const el=document.createElement('div'); el.className='ev '+cls;
   el.innerHTML=`<div class="ico">${ico}</div><div class="meta"><b>${d.event}</b> <span class="teid">${d.teid}</span><div class="t">${d.direction} · ${d.packet_len}B · ${new Date((d.ts||0)*1000).toLocaleTimeString('id-ID')}</div></div>`;
   box.prepend(el);
-  while(box.children.length>30) box.removeChild(box.lastChild);
+  while(box.children.length>cfg.evmax) box.removeChild(box.lastChild);
+  if(d.event==='Error'){ lastErr++; if(cfg.thErr>0 && lastErr>=cfg.thErr && cfg.sound) beep(); }
+}
+function renderCounter(c){
+  if(!c)return;
+  $('ec-create').textContent=fmt(c.CreateSession||0);
+  $('ec-modify').textContent=fmt(c.ModifySession||0);
+  $('ec-delete').textContent=fmt(c.DeleteSession||0);
+  $('ec-error').textContent =fmt(c.Error||0);
 }
 
+// ---- WS handler ----
 function handle(msg){
+  if(paused) return;
   if(msg.type==='snapshot'){
     const s=msg.data;
+    if(s.version) $('d-ver').textContent='v'+s.version;
+    if(s.history){ hist={ul:[],dl:[],bw:[]}; s.history.forEach(h=>{ hist.ul.push(h.ul); hist.dl.push(h.dl); hist.bw.push(h.bytes); });
+      ['ul','dl','bw'].forEach(k=>{ if(hist[k].length>40) hist[k]=hist[k].slice(-40); }); }
     if(s.global&&s.global.total_imsi!=null) renderGlobal(s.global);
     if(s.protocol&&s.protocol.gtp_u!=null) renderProtocol(s.protocol);
-    (s.teid||[]).forEach(upsertTeid);
+    renderCounter(s.evt_counter);
+    (s.teid||[]).forEach(d=>{ teidMap[d.teid]={...d,_t:Date.now()}; }); renderTeids();
     (s.events||[]).slice().reverse().forEach(addEvent);
     $('stat').textContent=`msg: ${s.msg_count} · err: ${s.err_count}`;
     return;
@@ -172,15 +394,66 @@ function handle(msg){
   if(msg.type==='global') renderGlobal(msg.data);
   else if(msg.type==='protocol') renderProtocol(msg.data);
   else if(msg.type==='teid') upsertTeid(msg.data);
-  else if(msg.type==='event') addEvent(msg.data);
+  else if(msg.type==='event'){ addEvent(msg.data); if(msg.counter) renderCounter(msg.counter); }
 }
 
-// expire sesi stale tiap 5s
-setInterval(()=>{ const now=Date.now(); let ch=false;
-  for(const k in teidMap){ if(now-teidMap[k]._t>15000){ delete teidMap[k]; ch=true; } }
+// ---- expire sesi stale ----
+setInterval(()=>{ if(paused)return; const now=Date.now(); let ch=false;
+  for(const k in teidMap){ if(now-teidMap[k]._t>cfg.ttl*1000){ delete teidMap[k]; ch=true; } }
   if(ch) renderTeids();
-}, 5000);
+}, 4000);
 
+// ---- sound ----
+let actx;
+function beep(){ try{ actx=actx||new (window.AudioContext||window.webkitAudioContext)(); const o=actx.createOscillator(),g=actx.createGain();
+  o.connect(g); g.connect(actx.destination); o.frequency.value=660; g.gain.value=.05; o.start(); o.stop(actx.currentTime+.12);
+}catch(e){} }
+
+// ---- apply config to UI ----
+function applyCfg(){
+  document.body.classList.toggle('compact', cfg.compact);
+  $('p-teid').classList.toggle('hidden', !cfg.panTeid);
+  $('p-proto').classList.toggle('hidden', !cfg.panProto);
+  $('p-event').classList.toggle('hidden', !cfg.panEvent);
+  document.querySelectorAll('.spark').forEach(s=>s.style.display=cfg.spark?'':'none');
+  // isi field drawer
+  $('th-drop').value=cfg.thDrop; $('th-ul').value=cfg.thUl; $('th-dl').value=cfg.thDl; $('th-err').value=cfg.thErr;
+  $('opt-sound').checked=cfg.sound; $('opt-ttl').value=cfg.ttl; $('opt-rows').value=cfg.rows; $('opt-evmax').value=cfg.evmax;
+  $('opt-compact').checked=cfg.compact; $('pan-teid').checked=cfg.panTeid; $('pan-proto').checked=cfg.panProto;
+  $('pan-event').checked=cfg.panEvent; $('opt-spark').checked=cfg.spark;
+  if(lastGlobal.total_imsi!=null) checkAlarms(lastGlobal);
+  renderTeids();
+}
+
+// ---- bind drawer controls ----
+function bindCfg(){
+  const num=(id,key)=>$(id).addEventListener('input',()=>{ cfg[key]=Number($(id).value)||0; saveCfg(); applyCfg(); });
+  const chk=(id,key)=>$(id).addEventListener('change',()=>{ cfg[key]=$(id).checked; saveCfg(); applyCfg(); });
+  num('th-drop','thDrop'); num('th-ul','thUl'); num('th-dl','thDl'); num('th-err','thErr');
+  num('opt-ttl','ttl'); num('opt-rows','rows'); num('opt-evmax','evmax');
+  chk('opt-sound','sound'); chk('opt-compact','compact'); chk('pan-teid','panTeid');
+  chk('pan-proto','panProto'); chk('pan-event','panEvent'); chk('opt-spark','spark');
+  $('d-reset').addEventListener('click',()=>{ if(confirm('Reset semua pengaturan ke default?')){ cfg={...DEFAULTS}; saveCfg(); applyCfg(); } });
+}
+
+// ---- UI events ----
+$('btn-settings').onclick=()=>{ $('scrim').classList.add('open'); $('drawer').classList.add('open'); };
+$('d-close').onclick=$('scrim').onclick=()=>{ $('scrim').classList.remove('open'); $('drawer').classList.remove('open'); };
+$('btn-pause').onclick=()=>{ paused=!paused; $('btn-pause').classList.toggle('active',paused); $('btn-pause').textContent=paused?'▶':'⏸'; $('pausebar').classList.toggle('show',paused); };
+$('f-search').addEventListener('input',renderTeids);
+$('f-qfi').addEventListener('change',renderTeids);
+$('m-close').onclick=()=>$('modal').classList.remove('open');
+$('modal').addEventListener('click',e=>{ if(e.target===$('modal')) $('modal').classList.remove('open'); });
+$('teid-body').addEventListener('click',e=>{ const tr=e.target.closest('tr[data-teid]'); if(tr) showDetail(tr.dataset.teid); });
+document.querySelectorAll('th[data-s]').forEach(th=>th.addEventListener('click',()=>{
+  const k=th.dataset.s; sort.dir = (sort.key===k) ? -sort.dir : -1; sort.key=k;
+  document.querySelectorAll('.arr').forEach(a=>a.textContent='');
+  document.querySelector(`.arr[data-a="${k}"]`).textContent = sort.dir<0?'▼':'▲';
+  renderTeids();
+}));
+document.addEventListener('keydown',e=>{ if(e.key==='Escape'){ $('modal').classList.remove('open'); $('scrim').click(); }});
+
+// ---- WebSocket ----
 let ws, retry=0;
 function connect(){
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
@@ -190,7 +463,10 @@ function connect(){
   ws.onclose=()=>{ $('dot').classList.remove('on'); $('conn').textContent='terputus — reconnect…'; retry++; setTimeout(connect, Math.min(retry*1000,5000)); };
   ws.onerror=()=>ws.close();
 }
-connect();
+
+// ---- init ----
+document.querySelector('.arr[data-a="ul_pkts"]').textContent='▼';
+bindCfg(); applyCfg(); connect();
 </script>
 </body>
 </html>

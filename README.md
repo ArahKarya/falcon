@@ -60,7 +60,22 @@ tmux kill-session -t falcon-sim       # stop simulator
 - **WebSocket** `ws(s)://<host>:8080/ws` — push JSON 4 tipe + snapshot awal.
   Dashboard memilih `wss://` otomatis saat diakses via HTTPS (hindari mixed-content).
 - **REST**: `/api/health` · `/api/stats/global` · `/api/stats/teid` ·
-  `/api/events?limit=N` · `/api/stats/protocol` · `/api/snapshot`
+  `/api/events?limit=N` · `/api/events/counter` · `/api/stats/protocol` ·
+  `/api/history` (ring-buffer ~120 titik utk sparkline) · `/api/snapshot` · `/api/version`
+
+## Fitur Dashboard
+
+Konfigurasi tersimpan di browser (`localStorage`) — per-device, tanpa backend write.
+
+| Kategori | Fitur |
+|---|---|
+| **Kontrol** | Pause/Resume stream (bekukan tampilan), panel Settings (⚙) |
+| **Alarm** | Ambang Drop / UL pps / DL pps / Error → kartu KPI flash merah; opsi bunyi |
+| **Tabel TEID** | Search (TEID/IMSI), filter QFI, sort tiap kolom, klik baris → detail sesi |
+| **Visual** | Sparkline UL/DL/Throughput (histori in-memory), bar protokol, counter event per-tipe |
+| **Tampilan** | Mode compact, toggle tiap panel, toggle sparkline, TTL sesi & limit baris/event |
+
+Semua mengikuti **Hermes Design System** (flat: solid, border 1px, sudut tajam, mono untuk angka — tanpa glow/neon/wire).
 
 ## Kontrak Byte (proposal AKS — perlu konfirmasi NOZ)
 
