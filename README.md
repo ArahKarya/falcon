@@ -10,6 +10,7 @@
 [![Python](https://img.shields.io/badge/Python-3.13-3776AB?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
 [![Transport](https://img.shields.io/badge/Telemetry-UDP%20%2B%20WebSocket-FF6F61?style=flat-square)]()
 [![Accelerator](https://img.shields.io/badge/Accelerator-FPGA%20GTP--U%20DPI-7B2FBF?style=flat-square)]()
+[![Gateware](https://img.shields.io/badge/Gateware-VHDL%20%C2%B7%20Virtex--5-FFA500?style=flat-square)](fpga/)
 
 </div>
 
@@ -199,8 +200,8 @@ Simulator menerima opsi: `--host`, `--port`, `--rate` (multiplier trafik/event).
 - [x] **Backend** — aiohttp UDP listener + WebSocket + REST, **malformed-safe**
 - [x] **Dashboard v1.1** — KPI, tabel TEID, protokol, event + **konfigurasi lengkap** (alarm, filter, sort, sparkline, pause, detail sesi)
 - [x] **Deploy publik** — Cloudflare tunnel → [falcon.arahkarya.com](https://falcon.arahkarya.com)
-- [ ] **Custom firmware FPGA** — gateware GTP-U DPI (in progress)
-- [ ] Integrasi board fisik (swap simulator → FPGA), konfirmasi byte-struct dengan NOZ
+- [x] **Gateware FPGA (VHDL)** — parser GTP-U + classifier + stats + telemetry packer; **testbench lulus** (byte-exact vs host, parse benar) — lihat [`fpga/`](fpga/)
+- [ ] Integrasi board fisik (swap simulator → FPGA), wrapper MAC/UDP, konfirmasi byte-struct dengan NOZ
 
 ## 🛠️ Saat FPGA asli datang
 

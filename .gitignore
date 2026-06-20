@@ -16,3 +16,21 @@ __pycache__/
 *.swp
 .idea/
 .vscode/
+
+# FPGA sim/synth artifacts
+fpga/sim/work/
+fpga/synth/build/
+*.cf
+*.vcd
+*.ngc
+*.ngd
+*.ncd
+*.bit
+*.bgn
+*.syr
+*.bld
+*.pcf
+*.twr
+e~*.o
+/tb_gtpu_parser
+/tb_telemetry_packer

@@ -1,0 +1,31 @@
+#-----------------------------------------------------------------------------
+# falcon_top.ucf — constraint Xilinx Virtex-5 (ISE) untuk FALCON gateware
+#
+# TEMPLATE: nomor pin (LOC) WAJIB disesuaikan dengan board/devkit NOZ.
+# Yang pasti: timing clock + nama net top-level. Pin di bawah = placeholder
+# (contoh ML505/ML509 family) — ganti dengan pinout board sebenarnya.
+#-----------------------------------------------------------------------------
+
+# ---- Clock 125 MHz (mis. dari GTP/MAC ref) ----
+NET "clk" TNM_NET = "clk";
+TIMESPEC "TS_clk" = PERIOD "clk" 8.0 ns HIGH 50%;   # 125 MHz
+NET "clk"  LOC = "AH15" | IOSTANDARD = LVCMOS33;     # <- ganti sesuai board
+
+# ---- Reset (active-high, sync di RTL) ----
+NET "rst"  LOC = "E9"   | IOSTANDARD = LVCMOS33;     # <- ganti
+
+# ---- RX AXI-Stream byte (dari MAC/UDP core) ----
+# Biasanya internal (antar-IP), tidak perlu LOC. Jika ke pin eksternal:
+# NET "rx_tdata[*]" IOSTANDARD = LVCMOS33;
+# NET "rx_tvalid"   IOSTANDARD = LVCMOS33;
+# NET "rx_tlast"    IOSTANDARD = LVCMOS33;
+
+# ---- TX datagram (ke MAC/UDP core) ----
+# Umumnya internal. TX ke PHY diatur oleh MAC core, bukan di sini.
+
+# ---- Catatan ----
+# FALCON gateware ini = data-path DPI. Untuk deployment penuh butuh:
+#   - Tri-Mode Ethernet MAC (TEMAC, Virtex-5 hard/soft IP)
+#   - UDP/IP core (mis. open-source verilog-ethernet, atau Xilinx LogiCORE)
+#   - Timer 1 Hz utk emit_global/emit_proto
+# yang di-instansiasi di wrapper board-spesifik (di luar repo gateware inti).
