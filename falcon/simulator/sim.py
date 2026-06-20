@@ -13,6 +13,9 @@ from shared import contract as C
 
 
 def rand_imsi():
+    # IMSI FIKTIF — dibangkitkan acak untuk demo/simulasi.
+    # TIDAK merujuk pelanggan/perangkat nyata. Tidak ada data subscriber asli yang dipakai.
+    # Prefix "310410" hanya untuk realisme format (panjang & struktur IMSI), bukan target operator nyata.
     return "310410" + "".join(random.choice("0123456789") for _ in range(9))
 
 

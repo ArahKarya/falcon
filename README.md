@@ -17,6 +17,13 @@
 > Sistem monitoring **GTP-U Deep Packet Inspection (DPI)** real-time, diakselerasi **FPGA**.
 > Kolaborasi **NOZ × Arah Karya Sinergi (AKS)**.
 
+> ### ⚠️ Disclaimer — Data Simulasi
+>
+> **Seluruh data yang ditampilkan FALCON (demo live & repo ini) bersifat SIMULASI — bukan trafik jaringan nyata.**
+> - **IMSI fiktif**: nomor IMSI dibangkitkan acak oleh simulator (`simulator/sim.py`) dan **tidak merujuk ke pelanggan, perangkat, atau identitas nyata mana pun**. Prefix hanya untuk realisme format; tidak ada penyadapan, *interception*, atau pengambilan data subscriber asli.
+> - **Trafik fiktif**: TEID, throughput, paket/detik, dan event GTP-U semuanya dihasilkan secara sintetik. Tidak ada paket jaringan nyata yang ditangkap atau diproses.
+> - **Tujuan**: demonstrasi arsitektur & UI observabilitas. Tidak ada PII (Personally Identifiable Information) nyata yang disimpan, diproses, atau ditampilkan.
+
 Telemetry dari akselerator **FPGA** — yang mem-*parse* paket **GTP-U** pada *line-rate* di plane jaringan seluler (4G/5G) — di-stream sebagai datagram **UDP** ringkas ke backend host, di-decode menjadi state, lalu **di-push live** ke dashboard web. Tujuannya: observabilitas trafik core network **tanpa membebani CPU** (parsing berat dikerjakan gateware FPGA, host hanya mengoordinasi & menyajikan).
 
 FALCON dipecah jadi **kontrak byte tunggal** yang dipakai bersama oleh sumber data dan konsumen. Selama board FPGA fisik masih dikembangkan di NOZ, sebuah **Simulator** menghasilkan telemetry realistis dengan kontrak byte **identik** — sehingga seluruh stack host (backend + dashboard) bisa dibangun & diuji **tanpa hardware**. Saat board datang: matikan simulator, arahkan FPGA kirim ke `:50000`, **tidak ada kode host yang berubah**.
