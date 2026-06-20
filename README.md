@@ -78,6 +78,8 @@ UDP datagram → parse_header (4B) → dispatch by msg_type → unpack payload
 Common header **4 byte**, semua multi-byte **big-endian** (network order).
 *Proposal AKS — field/offset final menunggu konfirmasi NOZ.*
 
+> 📘 **Integrasi FPGA → host:** lihat **[`INTEGRATION.md`](INTEGRATION.md)** — byte-layout lengkap tiap pesan, jadwal kirim, langkah cutover simulator→FPGA, dan checklist konfirmasi NOZ.
+
 ```
 Header (4B):  msg_type(u8) · version(u8) · length(u16)
 ```
