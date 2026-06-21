@@ -32,6 +32,10 @@ vhdl work ${RTL}/falcon_top.vhd
 EOF
 
 # ---- 2. XST script ----
+# -iobuf no: port top-level TIDAK di-bonding ke IOB pad (gateware ini data-path
+# internal — port nyambung antar-IP, bukan pin fisik). Tanpa ini, ratusan bit
+# port (tx_dgram 544b dll) minta IOB > kapasitas chip -> "too many bonded IOB".
+# Untuk bitstream flashable beneran, perlu wrapper board (MAC/UDP core) di atas.
 cat > ${TOP}.xst <<EOF
 run
 -ifn ${TOP}.prj
@@ -41,6 +45,7 @@ run
 -top ${TOP}
 -opt_mode Speed
 -opt_level 1
+-iobuf no
 EOF
 
 echo "[1/4] XST synthesize -> ${TOP}.ngc"
