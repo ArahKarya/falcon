@@ -21,7 +21,6 @@ NET "reset_n" LOC = "E7" | IOSTANDARD = LVCMOS25;
 # RX (PHY -> FPGA)
 NET "phy_rx_clk" LOC = "L19" | IOSTANDARD = LVCMOS25;
 NET "phy_rx_dv"  LOC = "N8"  | IOSTANDARD = LVCMOS25;
-NET "phy_rx_er"  LOC = "M19" | IOSTANDARD = LVCMOS25;   # TODO verify (tak tercantum eksplisit manual; placeholder bank sama)
 NET "phy_rxd[0]" LOC = "N7"  | IOSTANDARD = LVCMOS25;
 NET "phy_rxd[1]" LOC = "R6"  | IOSTANDARD = LVCMOS25;
 NET "phy_rxd[2]" LOC = "P6"  | IOSTANDARD = LVCMOS25;
@@ -33,7 +32,6 @@ NET "phy_rxd[7]" LOC = "L6"  | IOSTANDARD = LVCMOS25;
 
 # TX (FPGA -> PHY)
 NET "phy_gtx_clk" LOC = "J20" | IOSTANDARD = LVCMOS25 | SLEW = FAST;
-NET "phy_tx_clk"  LOC = "J16" | IOSTANDARD = LVCMOS25;
 NET "phy_tx_en"   LOC = "T10" | IOSTANDARD = LVCMOS25;
 NET "phy_tx_er"   LOC = "R8"  | IOSTANDARD = LVCMOS25;
 NET "phy_txd[0]"  LOC = "J5"  | IOSTANDARD = LVCMOS25;

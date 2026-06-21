@@ -26,9 +26,7 @@ module genesys_fpga (
     input  wire       phy_rx_clk,
     input  wire [7:0] phy_rxd,
     input  wire       phy_rx_dv,
-    input  wire       phy_rx_er,
     output wire       phy_gtx_clk,
-    input  wire       phy_tx_clk,
     output wire [7:0] phy_txd,
     output wire       phy_tx_en,
     output wire       phy_tx_er,
@@ -90,7 +88,7 @@ sync_reset #(
 sync_reset_inst (
     .clk(clk_int),
     .rst(~pll_locked),
-    .out(rst_int)
+    .sync_reset_out(rst_int)
 );
 
 // ---------------------------------------------------------------------------
@@ -108,9 +106,8 @@ core_inst (
     .phy_rx_clk(phy_rx_clk),
     .phy_rxd(phy_rxd),
     .phy_rx_dv(phy_rx_dv),
-    .phy_rx_er(phy_rx_er),
+    .phy_rx_er(1'b0),
     .phy_gtx_clk(phy_gtx_clk),
-    .phy_tx_clk(phy_tx_clk),
     .phy_txd(phy_txd),
     .phy_tx_en(phy_tx_en),
     .phy_tx_er(phy_tx_er),

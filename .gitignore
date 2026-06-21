@@ -1,42 +1,41 @@
-# Python
-.venv/
-venv/
-__pycache__/
-*.pyc
-*.pyo
-*.egg-info/
-.pytest_cache/
 
-# Logs & runtime
-*.log
-/tmp/
-
-# OS / editor
+*.bak
+*.bgn
+*.bit
+*.bld
+build/
+*.cf
 .DS_Store
-*.swp
-.idea/
-.vscode/
-
+*.egg-info/
+e~*.o
 # FPGA sim/synth artifacts
 fpga/sim/work/
 fpga/synth/build/
-*.cf
-*.vcd
-*.ngc
-*.ngd
-*.ncd
-*.bit
-*.bgn
-*.syr
-*.bld
-*.pcf
-*.twr
-e~*.o
-/tb_gtpu_parser
-/tb_telemetry_packer
-
-# GHDL elaborate artefak + vektor generated
 fpga/tb/tb_imsi_test
 fpga/tb/tb_telemetry_packer
 fpga/tb/vectors/imsi_frames.txt
 fpga/tb/vectors/imsi_map.csv
+# GHDL elaborate artefak + vektor generated
+.idea/
+*.log
+# Logs & runtime
+*.ncd
+*.ngc
+*.ngd
+# OS / editor
+*.pcf
+*.pyc
+__pycache__/
+*.pyo
+.pytest_cache/
+# Python
+*.swp
+*.syr
+/tb_gtpu_parser
+/tb_telemetry_packer
+/tmp/
+*.twr
+*.vcd
+.venv/
+venv/
+.vscode/
