@@ -1,31 +1,41 @@
 #-----------------------------------------------------------------------------
 # falcon_top.ucf — constraint Xilinx Virtex-5 (ISE) untuk FALCON gateware
 #
-# TEMPLATE: nomor pin (LOC) WAJIB disesuaikan dengan board/devkit NOZ.
-# Yang pasti: timing clock + nama net top-level. Pin di bawah = placeholder
-# (contoh ML505/ML509 family) — ganti dengan pinout board sebenarnya.
+# BOARD: Digilent Genesys (Virtex-5 XC5VLX50T-1-FF1136)
+# Pin diverifikasi dari Genesys FPGA Board Reference Manual (Digilent), hal. 16-17.
+#
+# Hanya clk + rst yang ke pin fisik. Sinyal lain (rx_*/ev_*/tx_*) internal —
+# nyambung antar-IP di dalam FPGA (MAC/UDP core), tidak perlu LOC.
 #-----------------------------------------------------------------------------
 
-# ---- Clock 125 MHz (mis. dari GTP/MAC ref) ----
+# ---- Clock 100 MHz (IC13, on-board single-ended oscillator) ----
+# Genesys: IC13 100MHz osc -> FPGA pin AG18 (3.3V bank). Period 10.0 ns.
 NET "clk" TNM_NET = "clk";
-TIMESPEC "TS_clk" = PERIOD "clk" 8.0 ns HIGH 50%;   # 125 MHz
-NET "clk"  LOC = "AH15" | IOSTANDARD = LVCMOS33;     # <- ganti sesuai board
+TIMESPEC "TS_clk" = PERIOD "clk" 10.0 ns HIGH 50%;   # 100 MHz
+NET "clk"  LOC = "AG18" | IOSTANDARD = LVCMOS33;
 
-# ---- Reset (active-high, sync di RTL) ----
-NET "rst"  LOC = "E9"   | IOSTANDARD = LVCMOS33;     # <- ganti
+# ---- Reset (RESET pushbutton, active-high) ----
+# Genesys: RESET button -> FPGA pin E7 (Bank 12, 2.5V). Tekan = logic high.
+# RTL falcon_top: rst active-high, disinkron internal.
+NET "rst"  LOC = "E7"   | IOSTANDARD = LVCMOS25;
+
+#-----------------------------------------------------------------------------
+# Alternatif clock yang tersedia di Genesys (kalau butuh lebih cepat):
+#   100MHz differential : H19 (P) / H20 (N)
+#   200MHz differential : J14 (P) / H13 (N)
+#   DIP socket osc       : AH15
+# Untuk pakai differential, perlu IBUFGDS + ubah IOSTANDARD ke LVDS_25.
+#-----------------------------------------------------------------------------
 
 # ---- RX AXI-Stream byte (dari MAC/UDP core) ----
-# Biasanya internal (antar-IP), tidak perlu LOC. Jika ke pin eksternal:
-# NET "rx_tdata[*]" IOSTANDARD = LVCMOS33;
-# NET "rx_tvalid"   IOSTANDARD = LVCMOS33;
-# NET "rx_tlast"    IOSTANDARD = LVCMOS33;
+# Internal (antar-IP), tidak perlu LOC. Jika ke pin eksternal, tambah di sini.
 
 # ---- TX datagram (ke MAC/UDP core) ----
-# Umumnya internal. TX ke PHY diatur oleh MAC core, bukan di sini.
+# Internal. TX ke PHY diatur oleh MAC core, bukan di sini.
 
-# ---- Catatan ----
-# FALCON gateware ini = data-path DPI. Untuk deployment penuh butuh:
-#   - Tri-Mode Ethernet MAC (TEMAC, Virtex-5 hard/soft IP)
-#   - UDP/IP core (mis. open-source verilog-ethernet, atau Xilinx LogiCORE)
-#   - Timer 1 Hz utk emit_global/emit_proto
-# yang di-instansiasi di wrapper board-spesifik (di luar repo gateware inti).
+# ---- Catatan deployment penuh ----
+# FALCON gateware = data-path DPI. Untuk board jalan end-to-end butuh:
+#   - Tri-Mode Ethernet MAC (Genesys punya PHY Marvell 88E1111, clock 25MHz)
+#   - UDP/IP core (mis. verilog-ethernet, atau Xilinx LogiCORE)
+#   - Timer 1 Hz utk emit_global/emit_proto (bagi clk 100MHz)
+# di-instansiasi di wrapper board-spesifik (di luar gateware inti).
