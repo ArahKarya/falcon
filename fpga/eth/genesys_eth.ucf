@@ -1,0 +1,65 @@
+# genesys_eth.ucf — constraint Ethernet Fase 0 (FALCON)
+# Board: Digilent Genesys (Virtex-5 XC5VLX50T-1-FF1136)
+# PHY: Marvell 88E1111 GMII. Pin dari Genesys Reference Manual hal.12.
+# Target: ARP + UDP echo, IP 192.168.0.20, bisa di-ping.
+
+CONFIG PART = xc5vlx50t-1-ff1136;
+
+#-----------------------------------------------------------------------------
+# Clock 100 MHz (IC13 on-board osc -> AG18) + timing
+#-----------------------------------------------------------------------------
+NET "clk"  LOC = "AG18" | IOSTANDARD = LVCMOS33;
+NET "clk"  TNM_NET = "sys_clk_pin";
+TIMESPEC "TS_sys_clk_pin" = PERIOD "sys_clk_pin" 10.0 ns HIGH 50%;
+
+# Reset (RESET pushbutton, pin E7, bank 12 2.5V)
+NET "reset_n" LOC = "E7" | IOSTANDARD = LVCMOS25;
+
+#-----------------------------------------------------------------------------
+# Ethernet GMII (Marvell 88E1111) — bank Ethernet 2.5V
+#-----------------------------------------------------------------------------
+# RX (PHY -> FPGA)
+NET "phy_rx_clk" LOC = "L19" | IOSTANDARD = LVCMOS25;
+NET "phy_rx_dv"  LOC = "N8"  | IOSTANDARD = LVCMOS25;
+NET "phy_rx_er"  LOC = "M19" | IOSTANDARD = LVCMOS25;   # TODO verify (tak tercantum eksplisit manual; placeholder bank sama)
+NET "phy_rxd[0]" LOC = "N7"  | IOSTANDARD = LVCMOS25;
+NET "phy_rxd[1]" LOC = "R6"  | IOSTANDARD = LVCMOS25;
+NET "phy_rxd[2]" LOC = "P6"  | IOSTANDARD = LVCMOS25;
+NET "phy_rxd[3]" LOC = "P5"  | IOSTANDARD = LVCMOS25;
+NET "phy_rxd[4]" LOC = "M7"  | IOSTANDARD = LVCMOS25;
+NET "phy_rxd[5]" LOC = "M6"  | IOSTANDARD = LVCMOS25;
+NET "phy_rxd[6]" LOC = "M5"  | IOSTANDARD = LVCMOS25;
+NET "phy_rxd[7]" LOC = "L6"  | IOSTANDARD = LVCMOS25;
+
+# TX (FPGA -> PHY)
+NET "phy_gtx_clk" LOC = "J20" | IOSTANDARD = LVCMOS25 | SLEW = FAST;
+NET "phy_tx_clk"  LOC = "J16" | IOSTANDARD = LVCMOS25;
+NET "phy_tx_en"   LOC = "T10" | IOSTANDARD = LVCMOS25;
+NET "phy_tx_er"   LOC = "R8"  | IOSTANDARD = LVCMOS25;
+NET "phy_txd[0]"  LOC = "J5"  | IOSTANDARD = LVCMOS25;
+NET "phy_txd[1]"  LOC = "G5"  | IOSTANDARD = LVCMOS25;
+NET "phy_txd[2]"  LOC = "F5"  | IOSTANDARD = LVCMOS25;
+NET "phy_txd[3]"  LOC = "R7"  | IOSTANDARD = LVCMOS25;
+NET "phy_txd[4]"  LOC = "T8"  | IOSTANDARD = LVCMOS25;
+NET "phy_txd[5]"  LOC = "R11" | IOSTANDARD = LVCMOS25;
+NET "phy_txd[6]"  LOC = "T11" | IOSTANDARD = LVCMOS25;
+NET "phy_txd[7]"  LOC = "U7"  | IOSTANDARD = LVCMOS25;
+
+# PHY management/control
+NET "phy_reset_n" LOC = "L4"  | IOSTANDARD = LVCMOS25;   # RESET# PHY
+
+# GMII RX clock timing (PHY drive ~125MHz @ 1000Mbps)
+NET "phy_rx_clk" TNM_NET = "phy_rx_clk_pin";
+TIMESPEC "TS_phy_rx_clk" = PERIOD "phy_rx_clk_pin" 8.0 ns HIGH 50%;
+
+#-----------------------------------------------------------------------------
+# LED status (Bank 22, 3.3V)
+#-----------------------------------------------------------------------------
+NET "led[0]" LOC = "AG8"  | IOSTANDARD = LVCMOS33;
+NET "led[1]" LOC = "AH8"  | IOSTANDARD = LVCMOS33;
+NET "led[2]" LOC = "AH9"  | IOSTANDARD = LVCMOS33;
+NET "led[3]" LOC = "AG10" | IOSTANDARD = LVCMOS33;
+NET "led[4]" LOC = "AH10" | IOSTANDARD = LVCMOS33;
+NET "led[5]" LOC = "AG11" | IOSTANDARD = LVCMOS33;
+NET "led[6]" LOC = "AF11" | IOSTANDARD = LVCMOS33;
+NET "led[7]" LOC = "AE11" | IOSTANDARD = LVCMOS33;
