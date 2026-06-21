@@ -74,8 +74,8 @@ architecture rtl of telemetry_packer is
   -- helper: pad payload ke 'total' byte (nol di sisi LSB)
   function pad_to(payload : std_logic_vector; total_bytes : natural)
     return std_logic_vector is
-    variable total_bits : natural := total_bytes * 8;
-    variable r : std_logic_vector(total_bits-1 downto 0) := (others => '0');
+    constant total_bits : natural := total_bytes * 8;
+    variable r : std_logic_vector(total_bytes*8-1 downto 0) := (others => '0');
   begin
     -- payload di MSB, sisanya nol
     r(total_bits-1 downto total_bits-payload'length) := payload;
