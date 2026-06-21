@@ -34,3 +34,9 @@ fpga/synth/build/
 e~*.o
 /tb_gtpu_parser
 /tb_telemetry_packer
+
+# GHDL elaborate artefak + vektor generated
+fpga/tb/tb_imsi_test
+fpga/tb/tb_telemetry_packer
+fpga/tb/vectors/imsi_frames.txt
+fpga/tb/vectors/imsi_map.csv
