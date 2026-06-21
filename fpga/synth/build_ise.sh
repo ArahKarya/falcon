@@ -12,11 +12,12 @@
 #-----------------------------------------------------------------------------
 set -e
 cd "$(dirname "$0")"
+HERE="$(pwd)"
 
 DEVICE="${DEVICE:-xc5vlx50t-1-ff1136}"
 TOP="falcon_top"
-RTL="../rtl"
-UCF="../constraints/falcon_top.ucf"
+RTL="${HERE}/../rtl"
+UCF="${HERE}/../constraints/falcon_top.ucf"
 OUT="build"
 mkdir -p "$OUT"; cd "$OUT"
 
