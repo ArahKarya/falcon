@@ -25,7 +25,10 @@ state = {
     "history": collections.deque(maxlen=120),   # ring-buffer global stats utk sparkline (~120 titik)
     "evt_counter": {"CreateSession": 0, "ModifySession": 0, "DeleteSession": 0, "Error": 0},
     "started": time.time(), "msg_count": 0, "err_count": 0,
+    "rawlog": collections.deque(maxlen=200),   # raw datagram feed (FPGA log)
 }
+TYPE_NAMES = {0x01: "GLOBAL", 0x02: "TEID", 0x03: "EVENT", 0x04: "PROTOCOL"}
+_raw_seq = [0]
 VERSION = "1.1.0"
 TEID_TTL = 15  # detik; sesi tak update dianggap mati
 ws_clients = set()
@@ -83,11 +86,32 @@ class TelemetryProto(asyncio.DatagramProtocol):
         self.loop = loop
     def datagram_received(self, data, addr):
         state["msg_count"] += 1
+        _raw_seq[0] += 1
+        tid = data[0] if len(data) > 0 else -1
+        rawrec = {
+            "seq": _raw_seq[0],
+            "ts": time.time(),
+            "src": f"{addr[0]}:{addr[1]}",
+            "type_id": tid,
+            "type": TYPE_NAMES.get(tid, f"0x{tid:02X}" if tid >= 0 else "?"),
+            "len": len(data),
+            "hex": data[:16].hex(),
+            "err": False,
+        }
         try:
             msg = C.decode(data)
         except Exception as e:
             state["err_count"] += 1
+            rawrec["err"] = True
+            state["rawlog"].append(rawrec)
+            asyncio.ensure_future(broadcast({"type": "rawlog", "data": rawrec}))
             return  # malformed-safe: skip, jangan crash
+        # enrich rawrec with decoded teid if present
+        if msg.get("type") == "teid":
+            rawrec["teid"] = msg["data"].get("teid")
+        elif msg.get("type") == "event":
+            rawrec["teid"] = msg["data"].get("teid")
+        state["rawlog"].append(rawrec)
         update_state(msg)
         # strip internal field sebelum kirim
         if msg["type"] == "teid":
@@ -95,6 +119,7 @@ class TelemetryProto(asyncio.DatagramProtocol):
         elif msg["type"] == "event":
             msg["counter"] = dict(state["evt_counter"])   # sertakan counter terkini
         asyncio.ensure_future(broadcast(msg))
+        asyncio.ensure_future(broadcast({"type": "rawlog", "data": rawrec}))
 
 
 # ---- HTTP / WS handlers ----
@@ -126,6 +151,7 @@ def snapshot():
         "msg_count": state["msg_count"], "err_count": state["err_count"],
         "ws_clients": len(ws_clients),
         "version": VERSION,
+        "rawlog": list(state["rawlog"])[-50:],
     }
 
 
@@ -140,6 +166,9 @@ async def api_snapshot(r): return web.json_response(snapshot())
 async def api_history(r):  return web.json_response(list(state["history"]))
 async def api_evtcounter(r): return web.json_response(state["evt_counter"])
 async def api_version(r):  return web.json_response({"name": "FALCON", "version": VERSION, "udp_port": UDP_PORT, "http_port": HTTP_PORT})
+async def api_rawlog(r):
+    lim = int(r.query.get("limit", 100))
+    return web.json_response(list(state["rawlog"])[-lim:])
 
 
 async def index(r):
@@ -171,6 +200,7 @@ def make_app():
         web.get("/api/history", api_history),
         web.get("/api/events/counter", api_evtcounter),
         web.get("/api/version", api_version),
+        web.get("/api/rawlog", api_rawlog),
     ])
     if os.path.isdir(DASH_DIR):
         app.router.add_static("/static/", DASH_DIR)

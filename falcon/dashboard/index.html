@@ -137,6 +137,24 @@
   .kv .k{ color:var(--mut); } .kv .v{ font-family:'JetBrains Mono',monospace; color:#fff; }
   .pausebar{ background:var(--amber); color:#15203a; font-size:11px; font-weight:700; text-align:center; padding:5px; border-radius:4px; margin-bottom:14px; display:none; }
   .pausebar.show{ display:block; }
+
+  .disc-live{ border-color:var(--teal)!important; background:rgba(22,199,154,.06)!important; }
+  .tag-live{ background:var(--teal)!important; color:#06281f!important; font-weight:700; animation:pulse 2s infinite; }
+  @keyframes pulse{ 0%,100%{opacity:1} 50%{opacity:.55} }
+  .rawlog{ max-height:340px; overflow-y:auto; font-family:'JetBrains Mono',monospace; font-size:10.5px; }
+  .rawlog table{ width:100%; }
+  .rawlog th{ position:sticky; top:0; background:var(--card); z-index:1; }
+  .rl-row td{ padding:3px 8px; border-bottom:1px solid rgba(255,255,255,.04); white-space:nowrap; }
+  .rl-t{ display:inline-block; min-width:62px; padding:1px 6px; border-radius:3px; font-size:9px; font-weight:700; text-align:center; }
+  .rl-GLOBAL{ background:#1b3a5c; color:#7db8ff; }
+  .rl-TEID{ background:#0e3d33; color:var(--teal); }
+  .rl-EVENT{ background:#3d2f0e; color:#f0c14b; }
+  .rl-PROTOCOL{ background:#3a1b4c; color:#c79bff; }
+  .rl-err{ background:#4c1b1b; color:#ff8888; }
+  .rl-hex{ color:var(--mut); font-size:9.5px; }
+  .rl-teid{ color:var(--cyan); }
+  .rl-new{ animation:rlflash .6s ease-out; }
+  @keyframes rlflash{ from{background:rgba(22,199,154,.18)} to{background:transparent} }
 </style>
 </head>
 <body>
@@ -158,9 +176,9 @@
     </div>
   </header>
 
-  <div class="disc">
-    <span class="tag">SIMULASI</span>
-    <span><b>Data demo — bukan trafik nyata.</b> IMSI, TEID &amp; throughput dibangkitkan acak oleh simulator. Tidak ada data pelanggan / penyadapan asli.</span>
+  <div class="disc disc-live">
+    <span class="tag tag-live">● LIVE · FPGA</span>
+    <span><b>Telemetri silikon nyata.</b> Data di-parse langsung oleh gateware FALCON (XC5VLX50T) dari paket GTP-U → emit ke backend via UDP :50000. Bukan simulator.</span>
   </div>
 
   <div class="pausebar" id="pausebar">⏸ STREAM DIJEDA — tampilan dibekukan untuk inspeksi. Klik ⏸ untuk lanjut.</div>
@@ -210,6 +228,15 @@
           <div class="evc error"><div class="n" id="ec-error">0</div><div class="l">Error</div></div>
         </div>
         <div class="events" id="events"><div class="empty">menunggu event…</div></div>
+      </div>
+      <div class="panel" id="p-rawlog" style="margin-top:18px">
+        <h2>📡 FPGA Telemetry Log <span class="tag" id="rl-count">0</span><span class="spacer"></span><span class="sw" title="jeda feed"><input type="checkbox" id="rl-pause"><span></span></span></h2>
+        <div class="rawlog">
+          <table>
+            <thead><tr><th style="width:78px">WAKTU</th><th style="width:72px">TYPE</th><th style="width:44px">LEN</th><th style="width:96px">TEID</th><th>HEX (16B awal)</th></tr></thead>
+            <tbody id="rl-body"><tr><td colspan="5" class="empty">menunggu datagram dari FPGA…</td></tr></tbody>
+          </table>
+        </div>
       </div>
     </div>
   </div>
@@ -389,6 +416,24 @@ function renderCounter(c){
 }
 
 // ---- WS handler ----
+var rlPaused=false, rlSeen=0;
+function fmtTs(ts){ const d=new Date(ts*1000); return d.toLocaleTimeString('id-ID',{hour12:false})+'.'+String(d.getMilliseconds()).padStart(3,'0'); }
+function addRaw(r){
+  if(rlPaused) return;
+  const body=$('rl-body');
+  if(body.querySelector('.empty')) body.innerHTML='';
+  const tr=document.createElement('tr');
+  tr.className='rl-row rl-new';
+  const tcls = r.err ? 'rl-err' : ('rl-'+(r.type||'?'));
+  const tlabel = r.err ? ('ERR '+r.type) : r.type;
+  let teid='\u2014';
+  if(r.teid!=null && r.teid!==''){ const n=(typeof r.teid==='string')?parseInt(r.teid,16):r.teid; teid='0x'+(n>>>0).toString(16).toUpperCase().padStart(8,'0'); }
+  const hex=(r.hex||'').replace(/(..)/g,'$1 ').trim();
+  tr.innerHTML='<td>'+fmtTs(r.ts)+'</td><td><span class="rl-t '+tcls+'">'+tlabel+'</span></td><td>'+r.len+'</td><td class="rl-teid">'+teid+'</td><td class="rl-hex">'+hex+'</td>';
+  body.insertBefore(tr, body.firstChild);
+  rlSeen++; $('rl-count').textContent=rlSeen;
+  while(body.children.length>200) body.removeChild(body.lastChild);
+}
 function handle(msg){
   if(paused) return;
   if(msg.type==='snapshot'){
@@ -401,6 +446,7 @@ function handle(msg){
     renderCounter(s.evt_counter);
     (s.teid||[]).forEach(d=>{ teidMap[d.teid]={...d,_t:Date.now()}; }); renderTeids();
     (s.events||[]).slice().reverse().forEach(addEvent);
+    (s.rawlog||[]).forEach(addRaw);
     $('stat').textContent=`msg: ${s.msg_count} · err: ${s.err_count}`;
     return;
   }
@@ -408,6 +454,7 @@ function handle(msg){
   else if(msg.type==='protocol') renderProtocol(msg.data);
   else if(msg.type==='teid') upsertTeid(msg.data);
   else if(msg.type==='event'){ addEvent(msg.data); if(msg.counter) renderCounter(msg.counter); }
+  else if(msg.type==='rawlog') addRaw(msg.data);
 }
 
 // ---- expire sesi stale ----
@@ -455,6 +502,7 @@ $('d-close').onclick=$('scrim').onclick=()=>{ $('scrim').classList.remove('open'
 $('btn-pause').onclick=()=>{ paused=!paused; $('btn-pause').classList.toggle('active',paused); $('btn-pause').textContent=paused?'▶':'⏸'; $('pausebar').classList.toggle('show',paused); };
 $('f-search').addEventListener('input',renderTeids);
 $('f-qfi').addEventListener('change',renderTeids);
+if($('rl-pause')) $('rl-pause').addEventListener('change',function(e){ rlPaused=e.target.checked; });
 $('m-close').onclick=()=>$('modal').classList.remove('open');
 $('modal').addEventListener('click',e=>{ if(e.target===$('modal')) $('modal').classList.remove('open'); });
 $('teid-body').addEventListener('click',e=>{ const tr=e.target.closest('tr[data-teid]'); if(tr) showDetail(tr.dataset.teid); });
