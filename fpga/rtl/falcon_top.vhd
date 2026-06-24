@@ -41,12 +41,17 @@ entity falcon_top is
     -- trigger emit telemetry (dari timer/event eksternal)
     emit_global  : in  std_logic;                       -- pulse: kirim 0x01
     emit_proto   : in  std_logic;                       -- pulse: kirim 0x04
-    emit_event   : in  std_logic;                       -- pulse: kirim 0x03
-    ev_type      : in  std_logic_vector(7 downto 0);    -- untuk 0x03
+    emit_teid    : in  std_logic;                       -- pulse: kirim 0x02 (Fase 1.5)
+    emit_event   : in  std_logic;                       -- pulse: kirim 0x03 (ext; OR internal auto)
+    ev_type      : in  std_logic_vector(7 downto 0);    -- untuk 0x03 (override; auto bila 0)
     ev_dir       : in  std_logic_vector(7 downto 0);
     ev_teid      : in  std_logic_vector(31 downto 0);
     ev_plen      : in  std_logic_vector(15 downto 0);
     ev_ts        : in  std_logic_vector(31 downto 0);
+    -- Fase 1.5: ekspos paket terparse + auto-event toggle
+    auto_event   : in  std_logic;                       -- '1' = emit EVENT otomatis tiap throttle window
+    pkt_done     : out std_logic;                       -- pulse: parser selesai 1 paket GTP-U
+    pkt_teid_o   : out std_logic_vector(31 downto 0);   -- TEID paket terakhir
     ts_now       : in  std_logic_vector(31 downto 0);   -- unix ts (dari RTC/counter)
     total_imsi   : in  std_logic_vector(31 downto 0);   -- dari session table (luar scope)
     active_teid  : in  std_logic_vector(31 downto 0);
@@ -82,6 +87,18 @@ architecture rtl of falcon_top is
   signal pk_type  : std_logic_vector(7 downto 0) := (others=>'0');
   signal pk_start : std_logic := '0';
 
+  -- Fase 1.5: auto-event detector + latch paket terakhir
+  signal evd_teid  : std_logic_vector(31 downto 0) := (others=>'0');
+  signal evd_mtype : std_logic_vector(7 downto 0)  := (others=>'0');
+  signal evd_plen  : std_logic_vector(15 downto 0) := (others=>'0');
+  signal evd_dir   : std_logic_vector(7 downto 0)  := (others=>'0');
+  signal auto_ev_p : std_logic := '0';   -- pulse EVENT internal
+  signal teid_p    : std_logic := '0';   -- pulse TEID internal
+  -- throttle counter (PINDAH dari wrapper Verilog ke VHDL: cross-lang pkt_done
+  -- bikin XST trim counter. Di sini p_done VHDL-native, aman.)
+  constant THROTTLE_N : integer := 64;  -- emit TEID tiap 64 paket GTP-U
+  signal thr_cnt   : integer range 0 to THROTTLE_N := 0;
+
   -- konversi count protokol -> persen basis 10000 (untuk 0x04)
   -- disederhanakan: kirim count mentah 16-bit LSB (host bisa normalisasi),
   -- ATAU normalisasi di sini bila total tersedia. Pakai mentah (truncate) +
@@ -94,6 +111,45 @@ architecture rtl of falcon_top is
 begin
   rx_tready <= '1';
   pkt_dir   <= '0' when (p_dport = PORT_GTPU) else '1';
+
+  -- Fase 1.5: ekspos paket terparse ke wrapper
+  pkt_done   <= p_done;
+  pkt_teid_o <= p_teid;
+
+  -- Fase 1.5: latch field paket + throttle internal (VHDL-native, no cross-lang dep).
+  -- Tiap THROTTLE_N paket GTP-U: pulse TEID (akhir window) + EVENT (tengah window).
+  process(clk)
+  begin
+    if rising_edge(clk) then
+      auto_ev_p <= '0';
+      teid_p    <= '0';
+      if rst = '1' then
+        evd_teid  <= (others=>'0');
+        evd_mtype <= (others=>'0');
+        evd_plen  <= (others=>'0');
+        evd_dir   <= (others=>'0');
+        thr_cnt   <= 0;
+      else
+        -- gate pakai p_dport langsung (SAMA dgn stats pkt_dir yg terbukti jalan),
+        -- bukan p_gtpu (is_udp AND ...) yg bisa beda timing di silikon.
+        if p_done = '1' and (p_dport = PORT_GTPU) then
+          evd_teid  <= p_teid;
+          evd_mtype <= p_mtype;
+          evd_plen  <= p_ulen;
+          evd_dir   <= "0000000" & pkt_dir;
+          if thr_cnt >= THROTTLE_N then
+            thr_cnt <= 0;
+            teid_p  <= '1';                 -- TEID (0x02) akhir window
+          else
+            thr_cnt <= thr_cnt + 1;
+            if thr_cnt = (THROTTLE_N / 2) then
+              auto_ev_p <= '1';             -- EVENT (0x03) tengah window
+            end if;
+          end if;
+        end if;
+      end if;
+    end if;
+  end process;
 
   -- ---- parser ----
   u_parser : entity work.gtpu_parser
@@ -129,28 +185,30 @@ begin
       -- 0x01
       g_ts=>ts_now, g_total_imsi=>total_imsi, g_ul_pps=>s_ul, g_dl_pps=>s_dl,
       g_active_teid=>active_teid, g_total_bytes=>s_bytes, g_drop=>s_drop,
-      -- 0x02 (TEID terakhir terparse — versi penuh pakai session table)
-      t_teid=>p_teid, t_imsi=>(others=>'0'), t_qfi=>(others=>'0'),
+      -- 0x02 (TEID terakhir terparse — latched; versi penuh pakai session table)
+      t_teid=>evd_teid, t_imsi=>(others=>'0'), t_qfi=>(others=>'0'),
       t_state=>FALCON_ST_ACTIVE, t_ul_pkts=>s_ul, t_dl_pkts=>s_dl,
-      -- 0x03
-      e_type=>ev_type, e_dir=>ev_dir, e_teid=>ev_teid, e_plen=>ev_plen, e_ts=>ev_ts,
+      -- 0x03 (auto dari paket terakhir; ev_* eksternal sbg fallback bila bukan auto)
+      e_type=>evd_mtype, e_dir=>evd_dir, e_teid=>evd_teid, e_plen=>evd_plen, e_ts=>ts_now,
       -- 0x04 (count protokol -> 16-bit)
       p_gtpu=>lo16(s_gu), p_gtpc=>lo16(s_gc), p_pfcp=>lo16(s_pf),
       p_bssgp=>lo16(s_bs), p_other=>lo16(s_ot),
       dgram=>tx_dgram, dgram_len=>tx_len, valid=>tx_valid
     );
 
-  -- ---- arbiter emit (prioritas: event > global > protocol) ----
+  -- ---- arbiter emit (prioritas: event > teid > global > protocol) ----
   process(clk)
   begin
     if rising_edge(clk) then
       pk_start <= '0';
       if rst = '1' then
         pk_type <= (others=>'0');
-      elsif emit_event = '1' then
-        pk_type <= FALCON_TYPE_EVENT;   pk_start <= '1';
+      elsif (emit_event = '1') or (auto_ev_p = '1') then
+        pk_type <= FALCON_TYPE_EVENT;    pk_start <= '1';
+      elsif (emit_teid = '1') or (teid_p = '1') then
+        pk_type <= FALCON_TYPE_TEID;     pk_start <= '1';
       elsif emit_global = '1' then
-        pk_type <= FALCON_TYPE_GLOBAL;  pk_start <= '1';
+        pk_type <= FALCON_TYPE_GLOBAL;   pk_start <= '1';
       elsif emit_proto = '1' then
         pk_type <= FALCON_TYPE_PROTOCOL; pk_start <= '1';
       end if;

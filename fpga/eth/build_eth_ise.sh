@@ -58,6 +58,12 @@ for f in "${SRC[@]}"; do
   [ -f "$f" ] || { echo "MISSING SOURCE: $f"; exit 1; }
   echo "verilog work \"$f\"" >> "$TOP.prj"
 done
+# ---- VHDL FALCON DPI (mixed-lang) ----
+RTL="$ETH/../rtl"
+for vf in falcon_pkg telemetry_packer gtpu_parser protocol_classifier stats_counter falcon_top falcon_dpi_wrap; do
+  [ -f "$RTL/$vf.vhd" ] || { echo "MISSING VHDL: $RTL/$vf.vhd"; exit 1; }
+  echo "vhdl work \"$RTL/$vf.vhd\"" >> "$TOP.prj"
+done
 echo "[build] project: $(wc -l < "$TOP.prj") source files"
 
 cat > "$TOP.xst" <<EOF

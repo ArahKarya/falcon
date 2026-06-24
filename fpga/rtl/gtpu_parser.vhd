@@ -29,7 +29,8 @@ entity gtpu_parser is
     clk        : in  std_logic;
     rst        : in  std_logic;
 
-    -- AXI-Stream byte input (frame Ethernet)
+    -- AXI-Stream byte input (GTP-U payload langsung; eth core SUDAH strip
+    -- Eth/IP/UDP + filter port 2152). byte0=flags,1=mtype,2-3=len,4-7=TEID.
     s_tdata    : in  std_logic_vector(7 downto 0);
     s_tvalid   : in  std_logic;
     s_tready   : out std_logic;
@@ -58,13 +59,10 @@ architecture rtl of gtpu_parser is
   signal r_ethtype : std_logic_vector(15 downto 0) := (others=>'0');
   signal r_ipproto : std_logic_vector(7 downto 0)  := (others=>'0');
   signal r_sport   : std_logic_vector(15 downto 0) := (others=>'0');
-  signal r_dport   : std_logic_vector(15 downto 0) := (others=>'0');
   signal r_ulen    : std_logic_vector(15 downto 0) := (others=>'0');
   signal r_mtype   : std_logic_vector(7 downto 0)  := (others=>'0');
   signal r_teid    : std_logic_vector(31 downto 0) := (others=>'0');
 
-  signal r_is_ipv4 : std_logic := '0';
-  signal r_is_udp  : std_logic := '0';
   signal r_done    : std_logic := '0';
 begin
   s_tready <= '1';  -- selalu siap
@@ -81,47 +79,22 @@ begin
         udp_off   <= to_unsigned(34,16);
         gtp_off   <= to_unsigned(42,16);
         r_ethtype <= (others=>'0'); r_ipproto <= (others=>'0');
-        r_sport <= (others=>'0'); r_dport <= (others=>'0'); r_ulen <= (others=>'0');
+        r_sport <= (others=>'0'); r_ulen <= (others=>'0');
         r_mtype <= (others=>'0'); r_teid <= (others=>'0');
-        r_is_ipv4 <= '0'; r_is_udp <= '0';
 
       elsif s_tvalid = '1' then
         c := to_integer(cnt);
 
-        -- ---- Ethernet ethertype @ byte 12..13 ----
-        if    c = 12 then r_ethtype(15 downto 8) <= s_tdata;
-        elsif c = 13 then
-          r_ethtype(7 downto 0) <= s_tdata;
-          if (r_ethtype(15 downto 8) = x"08") and (s_tdata = x"00") then
-            r_is_ipv4 <= '1';
-          end if;
-
-        -- ---- IPv4 IHL @ byte 14 (low nibble * 4 = header bytes) ----
-        elsif c = 14 then
-          ihl_bytes <= resize(unsigned(s_tdata(3 downto 0)) & "00", 6); -- IHL*4
-          udp_off   <= to_unsigned(14, 16) + resize(unsigned(s_tdata(3 downto 0)) & "00", 16);
-          gtp_off   <= to_unsigned(14+8,16) + resize(unsigned(s_tdata(3 downto 0)) & "00", 16);
-
-        -- ---- IPv4 protocol @ byte 14+9 = 23 ----
-        elsif c = 23 then
-          r_ipproto <= s_tdata;
-          if s_tdata = x"11" then r_is_udp <= '1'; end if;  -- 0x11 = 17 UDP
-
-        else
-          -- ---- UDP header (dinamis berdasar udp_off) ----
-          if    c = to_integer(udp_off)+0 then r_sport(15 downto 8) <= s_tdata;
-          elsif c = to_integer(udp_off)+1 then r_sport(7 downto 0)  <= s_tdata;
-          elsif c = to_integer(udp_off)+2 then r_dport(15 downto 8) <= s_tdata;
-          elsif c = to_integer(udp_off)+3 then r_dport(7 downto 0)  <= s_tdata;
-          elsif c = to_integer(udp_off)+4 then r_ulen(15 downto 8)  <= s_tdata;
-          elsif c = to_integer(udp_off)+5 then r_ulen(7 downto 0)   <= s_tdata;
-          -- ---- GTP-U header (mulai gtp_off): flags(0) mtype(1) len(2..3) teid(4..7) ----
-          elsif c = to_integer(gtp_off)+1 then r_mtype <= s_tdata;
-          elsif c = to_integer(gtp_off)+4 then r_teid(31 downto 24) <= s_tdata;
-          elsif c = to_integer(gtp_off)+5 then r_teid(23 downto 16) <= s_tdata;
-          elsif c = to_integer(gtp_off)+6 then r_teid(15 downto 8)  <= s_tdata;
-          elsif c = to_integer(gtp_off)+7 then r_teid(7 downto 0)   <= s_tdata;
-          end if;
+        -- ---- input = GTP-U payload langsung (byte0=flags) ----
+        -- flags(0) msg_type(1) length(2..3) TEID(4..7) ...
+        -- CATATAN: is_ipv4/is_udp/dport TIDAK di-register di sini (konstan ->
+        -- XST nge-trim FF jadi 0 & propagasi trim ke evd_*/pk_type di falcon_top
+        -- -> TEID/EVENT gak pernah emit). Di-drive combinatorial di bawah.
+        if    c = 1 then r_mtype <= s_tdata;
+        elsif c = 4 then r_teid(31 downto 24) <= s_tdata;
+        elsif c = 5 then r_teid(23 downto 16) <= s_tdata;
+        elsif c = 6 then r_teid(15 downto 8)  <= s_tdata;
+        elsif c = 7 then r_teid(7 downto 0)   <= s_tdata;
         end if;
 
         -- akhir frame -> emit done, reset counter
@@ -136,13 +109,14 @@ begin
   end process;
 
   done        <= r_done;
-  is_ipv4     <= r_is_ipv4;
-  is_udp      <= r_is_udp;
-  -- is_gtpu: UDP & (sport atau dport = 2152)
-  is_gtpu     <= '1' when (r_is_udp='1' and
-                           (r_dport = PORT_GTPU or r_sport = PORT_GTPU)) else '0';
+  -- DIRECT mode: eth core sudah jamin IPv4/UDP/port2152. Drive konstan secara
+  -- COMBINATORIAL (bukan register) supaya XST tidak nge-trim FF -> 0 dan
+  -- propagasi trim ke evd_*/pk_type. is_gtpu di-paksa '1' (port pasti match).
+  is_ipv4     <= '1';
+  is_udp      <= '1';
+  is_gtpu     <= '1';
   udp_sport   <= r_sport;
-  udp_dport   <= r_dport;
+  udp_dport   <= PORT_GTPU;        -- konstan: stats/throttle gate andalkan ini
   gtpu_mtype  <= r_mtype;
   teid        <= r_teid;
   payload_len <= r_ulen;

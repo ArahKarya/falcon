@@ -230,59 +230,96 @@ assign tx_ip_payload_tvalid = 0;
 assign tx_ip_payload_tlast = 0;
 assign tx_ip_payload_tuser = 0;
 
-// Loop back UDP
-wire match_cond = rx_udp_dest_port == 1234;
-wire no_match = ~match_cond;
+// ===========================================================================
+// FALCON DPI MODE (Fase 1) — ganti echo Fase 0.
+// RX: UDP payload port 2152 (GTP-U) -> falcon_dpi_wrap parser.
+// TX: telemetry datagram -> UDP ke HOST:50000.
+// ===========================================================================
+localparam [31:0] HOST_IP   = {8'd192, 8'd168, 8'd0, 8'd101};  // laptop NOZ
+localparam [15:0] TELE_PORT = 16'd50000;
+localparam [15:0] GTPU_PORT = 16'd2152;
 
-reg match_cond_reg = 0;
-reg no_match_reg = 0;
+// hanya terima paket UDP dest port 2152 ke parser
+wire dpi_match = (rx_udp_dest_port == GTPU_PORT);
 
+// RX payload -> wrapper (gate dgn match). Non-match: drain (tready=1) biar tak stall.
+wire        w_rx_tready;
+wire [7:0]  w_tx_tdata;
+wire        w_tx_tvalid;
+wire        w_tx_tready;
+wire        w_tx_tlast;
+wire        w_tx_busy;
+wire        w_tx_sof;   // FIX: per-datagram start-of-frame
+wire [15:0] w_tx_len;   // FIX: len datagram aktif (per-type)
+
+assign rx_udp_payload_tready = dpi_match ? w_rx_tready : 1'b1;
+
+falcon_dpi_wrap u_dpi (
+    .clk(clk), .rst(rst),
+    .rx_tdata(rx_udp_payload_tdata),
+    .rx_tvalid(rx_udp_payload_tvalid & dpi_match),
+    .rx_tready(w_rx_tready),
+    .rx_tlast(rx_udp_payload_tlast),
+    .tx_tdata(w_tx_tdata),
+    .tx_tvalid(w_tx_tvalid),
+    .tx_tready(w_tx_tready),
+    .tx_tlast(w_tx_tlast),
+    .tx_busy(w_tx_busy),
+    .tx_sof(w_tx_sof),
+    .tx_len_o(w_tx_len),
+    .dbg_teid(), .dbg_emit()
+);
+
+// ---- TX UDP header: kirim telemetry ke HOST:50000 ----
+// header dikirim sekali per datagram, saat serializer mulai (tx_busy rising).
+reg w_tx_busy_r = 0;
+always @(posedge clk) w_tx_busy_r <= w_tx_busy;
+// FIX Fase 1.5: tele_start dari SOF per-datagram (bukan busy-edge). Busy-edge
+// MISS datagram back-to-back (busy stay HIGH antar TEID/EVENT) -> header UDP
+// tak terkirim -> datagram di-drop UDP core. Itu sebab cuma GLOBAL@1Hz lolos.
+wire tele_start = w_tx_sof;
+
+reg tx_hdr_valid_r = 0;
 always @(posedge clk) begin
-    if (rst) begin
-        match_cond_reg <= 0;
-        no_match_reg <= 0;
-    end else begin
-        if (rx_udp_payload_tvalid) begin
-            if ((~match_cond_reg & ~no_match_reg) |
-                (rx_udp_payload_tvalid & rx_udp_payload_tready & rx_udp_payload_tlast)) begin
-                match_cond_reg <= match_cond;
-                no_match_reg <= no_match;
-            end
-        end else begin
-            match_cond_reg <= 0;
-            no_match_reg <= 0;
-        end
-    end
+    if (rst) tx_hdr_valid_r <= 0;
+    else if (tele_start) tx_hdr_valid_r <= 1;
+    else if (tx_udp_hdr_ready) tx_hdr_valid_r <= 0;
 end
 
-assign tx_udp_hdr_valid = rx_udp_hdr_valid & match_cond;
-assign rx_udp_hdr_ready = (tx_eth_hdr_ready & match_cond) | no_match;
-assign tx_udp_ip_dscp = 0;
-assign tx_udp_ip_ecn = 0;
-assign tx_udp_ip_ttl = 64;
+assign tx_udp_hdr_valid    = tx_hdr_valid_r;
+assign rx_udp_hdr_ready    = 1'b1;                 // selalu siap konsumsi RX hdr
+assign tx_udp_ip_dscp      = 0;
+assign tx_udp_ip_ecn       = 0;
+assign tx_udp_ip_ttl       = 64;
 assign tx_udp_ip_source_ip = local_ip;
-assign tx_udp_ip_dest_ip = rx_udp_ip_source_ip;
-assign tx_udp_source_port = rx_udp_dest_port;
-assign tx_udp_dest_port = rx_udp_source_port;
-assign tx_udp_length = rx_udp_length;
-assign tx_udp_checksum = 0;
-//assign tx_udp_payload_tdata = rx_udp_payload_tdata;
-//assign tx_udp_payload_tvalid = rx_udp_payload_tvalid;
-//assign rx_udp_payload_tready = tx_udp_payload_tready;
-//assign tx_udp_payload_tlast = rx_udp_payload_tlast;
-//assign tx_udp_payload_tuser = rx_udp_payload_tuser;
+assign tx_udp_ip_dest_ip   = HOST_IP;
+assign tx_udp_source_port  = TELE_PORT;
+assign tx_udp_dest_port    = TELE_PORT;
+// FIX Fase 1.5 TX: length per-datagram (GLOBAL=68,TEID=52,EVENT/PROTO=36).
+// Bug lama: hardcoded 68 -> TEID/EVENT (len beda) mismatch -> UDP core stall/
+// desync ~1s -> cuma GLOBAL@1Hz lolos. Sekarang dari serializer byte_cnt.
+assign tx_udp_length       = 16'd8 + w_tx_len;     // UDP hdr 8 + payload aktual
+assign tx_udp_checksum     = 0;
 
-assign tx_udp_payload_tdata = tx_fifo_udp_payload_tdata;
-assign tx_udp_payload_tvalid = tx_fifo_udp_payload_tvalid;
-assign tx_fifo_udp_payload_tready = tx_udp_payload_tready;
-assign tx_udp_payload_tlast = tx_fifo_udp_payload_tlast;
-assign tx_udp_payload_tuser = tx_fifo_udp_payload_tuser;
+// FIX Fase 1.5 TX DESYNC: header-first sequencing per datagram.
+// Bug: serializer pump payload byte-0 BARENGAN set hdr_valid -> header belum
+// accepted core -> payload desync -> UDP core drop. Hanya GLOBAL@1Hz (TX idle,
+// header sempat handshake) lolos. Bukti silikon: serializer mulai 1333 datagram,
+// cuma 7 keluar. FIX: tahan payload sampai header di-accept core (hdr_done),
+// baru stream byte. Serializer auto-hold byte-0 via tready=0 (AXIS-compliant).
+reg hdr_done = 0;
+always @(posedge clk) begin
+    if (rst) hdr_done <= 1'b0;
+    else if (tx_udp_hdr_valid && tx_udp_hdr_ready) hdr_done <= 1'b1;
+    else if (tx_udp_payload_tvalid && tx_udp_payload_tready && tx_udp_payload_tlast) hdr_done <= 1'b0;
+end
 
-assign rx_fifo_udp_payload_tdata = rx_udp_payload_tdata;
-assign rx_fifo_udp_payload_tvalid = rx_udp_payload_tvalid & match_cond_reg;
-assign rx_udp_payload_tready = (rx_fifo_udp_payload_tready & match_cond_reg) | no_match_reg;
-assign rx_fifo_udp_payload_tlast = rx_udp_payload_tlast;
-assign rx_fifo_udp_payload_tuser = rx_udp_payload_tuser;
+// payload = output serializer, di-gate hdr_done (header-first)
+assign tx_udp_payload_tdata  = w_tx_tdata;
+assign tx_udp_payload_tvalid = w_tx_tvalid & hdr_done;
+assign w_tx_tready           = tx_udp_payload_tready & hdr_done;
+assign tx_udp_payload_tlast  = w_tx_tlast;
+assign tx_udp_payload_tuser  = 1'b0;
 
 // Place first payload byte onto LEDs
 reg valid_last = 0;
@@ -306,6 +343,7 @@ assign led = led_reg;
 // PHY reset pulse: hold phy_reset_n LOW >=10ms after clk stabil, baru release.
 // 88E1111 butuh reset minimal 10ms + waktu config strap setelah power.
 // clk = 125MHz -> 10ms = 1_250_000 cycle. Pakai 25ms (3_125_000) buat margin.
+// HARDWARE-VERIFIED: tanpa ini link mati (LED nyala tapi Link detected:no).
 // ---------------------------------------------------------------------------
 localparam PHY_RST_CYC = 3_125_000;   // 25 ms @ 125MHz
 reg [21:0] phy_rst_cnt = 0;
@@ -583,27 +621,6 @@ udp_complete_inst (
     .clear_arp_cache(0)
 );
 
-axis_fifo #(
-    .ADDR_WIDTH(12),
-    .DATA_WIDTH(8)
-)
-udp_payload_fifo (
-    .clk(clk),
-    .rst(rst),
-
-    // AXI input
-    .input_axis_tdata(rx_fifo_udp_payload_tdata),
-    .input_axis_tvalid(rx_fifo_udp_payload_tvalid),
-    .input_axis_tready(rx_fifo_udp_payload_tready),
-    .input_axis_tlast(rx_fifo_udp_payload_tlast),
-    .input_axis_tuser(rx_fifo_udp_payload_tuser),
-
-    // AXI output
-    .output_axis_tdata(tx_fifo_udp_payload_tdata),
-    .output_axis_tvalid(tx_fifo_udp_payload_tvalid),
-    .output_axis_tready(tx_fifo_udp_payload_tready),
-    .output_axis_tlast(tx_fifo_udp_payload_tlast),
-    .output_axis_tuser(tx_fifo_udp_payload_tuser)
-);
+// echo udp_payload_fifo dihapus (DPI mode, Fase 1)
 
 endmodule

@@ -39,3 +39,9 @@ __pycache__/
 .venv/
 venv/
 .vscode/
+
+# Working backups (timestamped)
+*.bak.*
+# Dead Verilog wrapper/serializer (superseded by VHDL all-native, Fase 1.5)
+fpga/eth/falcon_dpi_wrap.v
+fpga/eth/dgram_serializer.v
