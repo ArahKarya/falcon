@@ -15,7 +15,7 @@
 </div>
 
 > Sistem monitoring **GTP-U Deep Packet Inspection (DPI)** real-time, diakselerasi **FPGA**.
-> Kolaborasi **NOZ × Arah Karya Sinergi (AKS)**.
+> Kolaborasi **[NOZ BERKARYA](https://github.com/noz-co-id/) × Arah Karya Sinergi (AKS)**.
 
 > ### ⚠️ Disclaimer — Data Simulasi
 >
@@ -26,7 +26,7 @@
 
 Telemetry dari akselerator **FPGA** — yang mem-*parse* paket **GTP-U** pada *line-rate* di plane jaringan seluler (4G/5G) — di-stream sebagai datagram **UDP** ringkas ke backend host, di-decode menjadi state, lalu **di-push live** ke dashboard web. Tujuannya: observabilitas trafik core network **tanpa membebani CPU** (parsing berat dikerjakan gateware FPGA, host hanya mengoordinasi & menyajikan).
 
-FALCON dipecah jadi **kontrak byte tunggal** yang dipakai bersama oleh sumber data dan konsumen. Selama board FPGA fisik masih dikembangkan di NOZ, sebuah **Simulator** menghasilkan telemetry realistis dengan kontrak byte **identik** — sehingga seluruh stack host (backend + dashboard) bisa dibangun & diuji **tanpa hardware**. Saat board datang: matikan simulator, arahkan FPGA kirim ke `:50000`, **tidak ada kode host yang berubah**.
+FALCON dipecah jadi **kontrak byte tunggal** yang dipakai bersama oleh sumber data dan konsumen. Selama board FPGA fisik masih dikembangkan di NOZ BERKARYA, sebuah **Simulator** menghasilkan telemetry realistis dengan kontrak byte **identik** — sehingga seluruh stack host (backend + dashboard) bisa dibangun & diuji **tanpa hardware**. Saat board datang: matikan simulator, arahkan FPGA kirim ke `:50000`, **tidak ada kode host yang berubah**.
 
 ## ✨ Kenapa FALCON
 
@@ -76,9 +76,9 @@ UDP datagram → parse_header (4B) → dispatch by msg_type → unpack payload
 ## 🧬 Kontrak Byte Telemetry
 
 Common header **4 byte**, semua multi-byte **big-endian** (network order).
-*Proposal AKS — field/offset final menunggu konfirmasi NOZ.*
+*Proposal AKS — field/offset final menunggu konfirmasi NOZ BERKARYA.*
 
-> 📘 **Integrasi FPGA → host:** lihat **[`INTEGRATION.md`](INTEGRATION.md)** — byte-layout lengkap tiap pesan, jadwal kirim, langkah cutover simulator→FPGA, dan checklist konfirmasi NOZ.
+> 📘 **Integrasi FPGA → host:** lihat **[`INTEGRATION.md`](INTEGRATION.md)** — byte-layout lengkap tiap pesan, jadwal kirim, langkah cutover simulator→FPGA, dan checklist konfirmasi NOZ BERKARYA.
 
 ```
 Header (4B):  msg_type(u8) · version(u8) · length(u16)
@@ -159,7 +159,7 @@ falcon/                       # repo root
 │   ├── FPGA-Diagram.pdf       # diagram arsitektur & metode ingest
 │   ├── screenshots/           # tampilan dashboard
 │   └── *.md                   # sumber Markdown
-└── source-pdf/                # dokumen sumber asli dari NOZ (FPGA spec + readme)
+└── source-pdf/                # dokumen sumber asli dari NOZ BERKARYA (FPGA spec + readme)
 ```
 
 ## 🔌 Port
@@ -210,11 +210,11 @@ Simulator menerima opsi: `--host`, `--port`, `--rate` (multiplier trafik/event).
 - [x] **Dashboard v1.1** — KPI, tabel TEID, protokol, event + **konfigurasi lengkap** (alarm, filter, sort, sparkline, pause, detail sesi)
 - [x] **Deploy publik** — Cloudflare tunnel → [falcon.arahkarya.com](https://falcon.arahkarya.com)
 - [x] **Gateware FPGA (VHDL)** — parser GTP-U + classifier + stats + telemetry packer; **testbench lulus** (byte-exact vs host, parse benar) — lihat [`fpga/`](fpga/)
-- [ ] Integrasi board fisik (swap simulator → FPGA), wrapper MAC/UDP, konfirmasi byte-struct dengan NOZ
+- [ ] Integrasi board fisik (swap simulator → FPGA), wrapper MAC/UDP, konfirmasi byte-struct dengan NOZ BERKARYA
 
 ## 🛠️ Saat FPGA asli datang
 
-1. Konfirmasi field/offset byte dengan NOZ → patch `falcon/shared/contract.py` bila beda.
+1. Konfirmasi field/offset byte dengan NOZ BERKARYA → patch `falcon/shared/contract.py` bila beda.
 2. `tmux kill-session -t falcon-sim`.
 3. Arahkan FPGA kirim telemetry ke host `:50000`. **Backend & dashboard tak berubah.**
 
@@ -226,5 +226,5 @@ Dashboard: **vanilla** HTML/CSS/JS (tanpa build step), tema **Hermes Dashboard**
 ---
 
 <div align="center">
-<sub>© 2026 Arah Karya Sinergi (AKS) × NOZ · FALCON</sub>
+<sub>© 2026 Arah Karya Sinergi (AKS) × [NOZ BERKARYA](https://github.com/noz-co-id/) · FALCON</sub>
 </div>
