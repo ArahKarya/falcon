@@ -1,0 +1,15 @@
+#!/bin/bash
+# rc.local — FALCON lab startup (NOZ)
+# Set IP host enp2s0 (selalu hilang tiap boot/flash) + pastikan backend hidup.
+# Backend utama dikelola systemd (falcon-be.service); ini fallback + IP.
+
+# 1. Set IP statik host enp2s0 (board FALCON pakai 192.168.0.20, host .101)
+ip addr add 192.168.0.101/24 dev enp2s0 2>/dev/null
+ip link set enp2s0 up 2>/dev/null
+
+# 2. Fallback: pastikan backend FALCON jalan (kalau systemd unit belum aktif)
+if ! systemctl is-active --quiet falcon-be.service; then
+  systemctl start falcon-be.service 2>/dev/null
+fi
+
+exit 0

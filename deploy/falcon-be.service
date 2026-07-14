@@ -1,0 +1,17 @@
+[Unit]
+Description=FALCON Backend — telemetry collector + WebSocket + dashboard (:8080)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=noz
+WorkingDirectory=/data/yayang/falcon/falcon/backend
+ExecStart=/usr/bin/python3 server.py
+Restart=always
+RestartSec=3
+StandardOutput=append:/var/log/falcon-be.log
+StandardError=append:/var/log/falcon-be.log
+
+[Install]
+WantedBy=multi-user.target
