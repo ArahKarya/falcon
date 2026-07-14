@@ -155,6 +155,12 @@
   .rl-teid{ color:var(--cyan); }
   .rl-new{ animation:rlflash .6s ease-out; }
   @keyframes rlflash{ from{background:rgba(22,199,154,.18)} to{background:transparent} }
+
+  .genbar{ display:flex; align-items:center; gap:8px; font-size:11px; font-weight:600; padding:6px 12px;
+    background:var(--card); border:1px solid var(--line); border-radius:4px; margin-bottom:14px; color:var(--mut); }
+  .gdot{ width:9px; height:9px; border-radius:50%; background:#5a6478; flex:none; }
+  .gdot.on{ background:var(--teal); box-shadow:0 0 8px var(--teal); }
+  .btn-gen.active{ color:var(--teal); border-color:var(--teal); }
 </style>
 </head>
 <body>
@@ -171,6 +177,7 @@
     </div>
     <div class="status">
       <span class="conn-wrap"><span class="dot" id="dot"></span><span id="conn">menyambung…</span></span>
+      <span class="hbtn" id="btn-gen" title="Start / Stop generator GTP-U">▶</span>
       <span class="hbtn" id="btn-pause" title="Pause / Resume stream">⏸</span>
       <span class="hbtn" id="btn-settings" title="Pengaturan">⚙</span>
     </div>
@@ -182,6 +189,7 @@
   </div>
 
   <div class="pausebar" id="pausebar">⏸ STREAM DIJEDA — tampilan dibekukan untuk inspeksi. Klik ⏸ untuk lanjut.</div>
+  <div class="genbar" id="genbar"><span class="gdot" id="gdot"></span><span id="gtext">Generator: memeriksa…</span></div>
 
   <div class="kpis" id="kpis">
     <div class="kpi" data-k="imsi"><div class="lbl">IMSI Aktif</div><div class="val cyan" id="k-imsi">—</div><div class="sub">pengguna terdeteksi</div></div>
@@ -516,6 +524,31 @@ document.addEventListener('keydown',e=>{ if(e.key==='Escape'){ $('modal').classL
 
 // ---- WebSocket ----
 let ws, retry=0;
+var genRunning=false, genBusy=false;
+function renderGen(){
+  var b=$('btn-gen'), d=$('gdot'), t=$('gtext');
+  if(!b) return;
+  b.textContent = genRunning ? '⏹' : '▶';
+  b.classList.toggle('active', genRunning);
+  if(d) d.classList.toggle('on', genRunning);
+  if(t) t.textContent = 'Generator GTP-U: ' + (genRunning ? 'AKTIF — inject paket ke board' : 'mati');
+}
+function pollGen(){
+  fetch('/api/generator/status').then(r=>r.json()).then(j=>{ genRunning=!!j.running; renderGen(); }).catch(()=>{});
+}
+function toggleGen(){
+  if(genBusy) return;
+  genBusy=true;
+  var act = genRunning ? 'stop' : 'start';
+  var t=$('gtext'); if(t) t.textContent='Generator: '+(act==='start'?'menyalakan…':'mematikan…');
+  fetch('/api/generator/'+act, {method:'POST'}).then(r=>r.json()).then(j=>{
+    genRunning=!!j.running; genBusy=false; renderGen();
+  }).catch(()=>{ genBusy=false; pollGen(); });
+}
+if($('btn-gen')) $('btn-gen').onclick=toggleGen;
+pollGen();
+setInterval(pollGen, 4000);
+
 function connect(){
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
   ws=new WebSocket(`${proto}://${location.host}/ws`);

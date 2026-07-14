@@ -8,7 +8,7 @@ Mirror PRD §6-7.2. Satu proses asyncio.
 
 Usage: python3 server.py
 """
-import asyncio, json, time, sys, os, collections
+import asyncio, json, time, sys, os, collections, subprocess
 from aiohttp import web
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from shared import contract as C
@@ -16,6 +16,7 @@ from shared import contract as C
 UDP_PORT = 50000
 HTTP_PORT = 8080
 DASH_DIR = os.path.join(os.path.dirname(__file__), "..", "dashboard")
+GEN_CTL = os.path.join(os.path.dirname(__file__), "..", "..", "scripts", "falcon-gen")
 
 # ---- in-memory state ----
 state = {
@@ -165,6 +166,28 @@ async def api_protocol(r): return web.json_response(state["protocol"])
 async def api_snapshot(r): return web.json_response(snapshot())
 async def api_history(r):  return web.json_response(list(state["history"]))
 async def api_evtcounter(r): return web.json_response(state["evt_counter"])
+def _gen(action):
+    """run falcon-gen <action>, return (ok, output)."""
+    try:
+        r = subprocess.run(["bash", GEN_CTL, action], capture_output=True, text=True, timeout=15)
+        out = (r.stdout + r.stderr).strip()
+        return r.returncode == 0, out
+    except Exception as e:
+        return False, str(e)
+
+async def api_gen_status(r):
+    ok, out = _gen("status")
+    running = out.startswith("RUNNING")
+    return web.json_response({"running": running, "detail": out})
+
+async def api_gen_start(r):
+    ok, out = _gen("start")
+    return web.json_response({"ok": ok, "detail": out, "running": ("STARTED" in out or "ALREADY_RUNNING" in out)})
+
+async def api_gen_stop(r):
+    ok, out = _gen("stop")
+    return web.json_response({"ok": ok, "detail": out, "running": False})
+
 async def api_version(r):  return web.json_response({"name": "FALCON", "version": VERSION, "udp_port": UDP_PORT, "http_port": HTTP_PORT})
 async def api_rawlog(r):
     lim = int(r.query.get("limit", 100))
@@ -200,6 +223,9 @@ def make_app():
         web.get("/api/history", api_history),
         web.get("/api/events/counter", api_evtcounter),
         web.get("/api/version", api_version),
+        web.get("/api/generator/status", api_gen_status),
+        web.post("/api/generator/start", api_gen_start),
+        web.post("/api/generator/stop", api_gen_stop),
         web.get("/api/rawlog", api_rawlog),
     ])
     if os.path.isdir(DASH_DIR):

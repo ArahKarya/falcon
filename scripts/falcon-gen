@@ -1,0 +1,39 @@
+#!/bin/bash
+# falcon-gen — kontrol generator GTP-U kontinu untuk dashboard FALCON.
+# Pakai: falcon-gen {start|stop|status|restart}
+# Dipanggil manual (CLI) ATAU oleh backend via endpoint /api/generator/*.
+HERE="$(cd "$(dirname "$0")" && pwd)"
+LOOP="$HERE/gen_loop.sh"
+LOG=/tmp/gen_loop.log
+BE=http://127.0.0.1:8080/api/health
+
+start() {
+  if pgrep -f gen_loop.sh >/dev/null; then
+    echo "ALREADY_RUNNING pid=$(pgrep -f gen_loop.sh | head -1)"; return 0
+  fi
+  [ -x "$LOOP" ] || { echo "ERROR: $LOOP tidak ada/executable"; return 1; }
+  nohup "$LOOP" > "$LOG" 2>&1 &
+  sleep 1
+  echo "STARTED pid=$(pgrep -f gen_loop.sh | head -1)"
+}
+stop() {
+  pkill -f gen_loop.sh 2>/dev/null
+  pkill -f send_gtpu.py 2>/dev/null
+  sleep 1
+  pgrep -f gen_loop.sh >/dev/null && { pkill -9 -f gen_loop.sh; pkill -9 -f send_gtpu.py; }
+  echo "STOPPED"
+}
+status() {
+  if pgrep -f gen_loop.sh >/dev/null; then
+    echo "RUNNING pid=$(pgrep -f gen_loop.sh | head -1)"
+  else
+    echo "STOPPED"
+  fi
+}
+case "$1" in
+  start)   start ;;
+  stop)    stop ;;
+  status)  status ;;
+  restart) stop; sleep 1; start ;;
+  *)       echo "Pakai: falcon-gen {start|stop|status|restart}"; exit 1 ;;
+esac
