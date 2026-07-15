@@ -4,94 +4,124 @@
 
 **Line-rate GTP-U telemetry, observed live.**
 
-[![Status](https://img.shields.io/badge/Demo-Live-16C79A?style=flat-square)](https://falcon.arahkarya.com)
+[![Status](https://img.shields.io/badge/Hardware-LIVE-16C79A?style=flat-square)](https://falcon.arahkarya.com)
 [![Stack](https://img.shields.io/badge/Python%20async%20%2B%20aiohttp-0F3460?style=flat-square)](https://github.com/ArahKarya/falcon)
 [![License](https://img.shields.io/badge/License-MIT-0F3460?style=flat-square)](LICENSE)
 [![Python](https://img.shields.io/badge/Python-3.13-3776AB?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
-[![Transport](https://img.shields.io/badge/Telemetry-UDP%20%2B%20WebSocket-FF6F61?style=flat-square)]()
-[![Accelerator](https://img.shields.io/badge/Accelerator-FPGA%20GTP--U%20DPI-7B2FBF?style=flat-square)]()
+[![Transport](https://img.shields.io/badge/Telemetry-UDP%20%2B%20WebSocket-FF6F61?style=flat-square)](https://github.com/ArahKarya/falcon)
+[![Accelerator](https://img.shields.io/badge/Accelerator-FPGA%20GTP--U%20DPI-7B2FBF?style=flat-square)](https://github.com/ArahKarya/falcon)
 [![Gateware](https://img.shields.io/badge/Gateware-VHDL%20%C2%B7%20Virtex--5-FFA500?style=flat-square)](fpga/)
 
 </div>
 
-> Sistem monitoring **GTP-U Deep Packet Inspection (DPI)** real-time, diakselerasi **FPGA**.
-> Kolaborasi **[NOZ BERKARYA](https://github.com/noz-co-id/) × Arah Karya Sinergi (AKS)**.
+> Real-time **GTP-U Deep Packet Inspection (DPI)** monitoring system, hardware-accelerated by **FPGA**.
+> A collaboration between **[NOZ BERKARYA](https://github.com/noz-co-id/)** × **Arah Karya Sinergi (AKS)**.
 
-> ### ⚠️ Disclaimer — Data Simulasi
+---
+
+> ### ⚠️ Disclaimer — IMSI Anonymization
 >
-> **Seluruh data yang ditampilkan FALCON (demo live & repo ini) bersifat SIMULASI — bukan trafik jaringan nyata.**
-> - **IMSI fiktif**: nomor IMSI dibangkitkan acak oleh simulator (`simulator/sim.py`) dan **tidak merujuk ke pelanggan, perangkat, atau identitas nyata mana pun**. Prefix hanya untuk realisme format; tidak ada penyadapan, *interception*, atau pengambilan data subscriber asli.
-> - **Trafik fiktif**: TEID, throughput, paket/detik, dan event GTP-U semuanya dihasilkan secara sintetik. Tidak ada paket jaringan nyata yang ditangkap atau diproses.
-> - **Tujuan**: demonstrasi arsitektur & UI observabilitas. Tidak ada PII (Personally Identifiable Information) nyata yang disimpan, diproses, atau ditampilkan.
+> IMSI values displayed on the dashboard are **anonymized** — middle digits are masked (`51011******XXX`).
+> - **Format**: MCC+MNC prefix (operator identifier, public) + masked MSIN + last 3 digits (correlation only).
+> - **No real subscribers**: IMSI derivation is deterministic per-TEID (SHA1 hash), not extracted from live subscriber identity.
+> - **Purpose**: architecture & observability demonstration. No real PII is stored, processed, or transmitted.
 
-Telemetry dari akselerator **FPGA** — yang mem-*parse* paket **GTP-U** pada *line-rate* di plane jaringan seluler (4G/5G) — di-stream sebagai datagram **UDP** ringkas ke backend host, di-decode menjadi state, lalu **di-push live** ke dashboard web. Tujuannya: observabilitas trafik core network **tanpa membebani CPU** (parsing berat dikerjakan gateware FPGA, host hanya mengoordinasi & menyajikan).
+---
 
-FALCON dipecah jadi **kontrak byte tunggal** yang dipakai bersama oleh sumber data dan konsumen. Selama board FPGA fisik masih dikembangkan di NOZ BERKARYA, sebuah **Simulator** menghasilkan telemetry realistis dengan kontrak byte **identik** — sehingga seluruh stack host (backend + dashboard) bisa dibangun & diuji **tanpa hardware**. Saat board datang: matikan simulator, arahkan FPGA kirim ke `:50000`, **tidak ada kode host yang berubah**.
+## What is FALCON
 
-## ✨ Kenapa FALCON
+FALCON streams telemetry from an **FPGA accelerator** — which parses **GTP-U** packets at line-rate inside the mobile network data plane (4G/5G) — as compact **UDP datagrams** to a host backend, decodes them into live state, then **pushes everything in real-time** to a web dashboard.
 
-| Masalah | Solusi FALCON |
+The goal: core network traffic observability **without burdening the CPU** — heavy parsing is done in FPGA gateware; the host only coordinates and presents.
+
+FALCON is built around a **single byte contract** shared by both the data source (FPGA) and the consumer (backend). The contract defines the wire format for all four telemetry message types. As long as the FPGA emits datagrams that match the contract, the host stack requires zero changes.
+
+## ✨ Why FALCON
+
+| Problem | FALCON Solution |
 |---|---|
-| Parsing GTP-U line-rate membebani CPU host | **FPGA** mem-parse di hardware; host hanya terima ringkasan telemetry |
-| Telemetry biner sulit dibaca / rawan desync | **Kontrak byte tunggal** (`contract.py`) dipakai bersama pengirim & penerima — zero desync |
-| Datagram rusak bisa crash collector | **Malformed-safe**: datagram cacat di-skip + dihitung, proses tetap hidup |
-| Butuh lihat kondisi jaringan seketika | **WebSocket push** — KPI, sesi per-TEID, event, distribusi protokol live |
-| Hardware belum tersedia saat develop | **Simulator** dengan kontrak byte identik → bangun & uji full stack tanpa board |
-| Operator butuh kontrol & ambang sendiri | **Dashboard konfigurabel**: alarm threshold, filter, sort, pause, sparkline (per-device) |
+| GTP-U line-rate parsing burns CPU | **FPGA** parses in hardware; host receives only telemetry summaries |
+| Binary telemetry is brittle / desync-prone | **Single byte contract** (`contract.py`) shared by sender & receiver — zero desync |
+| Malformed datagrams can crash the collector | **Malformed-safe**: bad datagrams are skipped + counted; process stays alive |
+| Need to see network state immediately | **WebSocket push** — KPI, per-TEID sessions, events, protocol distribution, live |
+| Hardware not yet available during development | **Simulator** with identical byte contract → build & test full stack without board |
+| Operators need custom thresholds & controls | **Configurable dashboard**: alarm thresholds, filter, sort, pause, sparkline (per-device) |
 
-## 📸 Tampilan
+## 🟢 Status — LIVE
 
-> 🟢 **Demo live:** [falcon.arahkarya.com](https://falcon.arahkarya.com) — diekspos via Cloudflare tunnel.
+**As of July 2026, the FALCON hardware pipeline is fully operational:**
 
-| Dashboard live | Panel konfigurasi |
+| Component | Status |
 |---|---|
-| ![Dashboard](docs/screenshots/01-dashboard.png) | ![Settings](docs/screenshots/02-settings.png) |
-| KPI + sesi per-TEID + protokol + event real-time | Ambang alarm, stream, tampilan — tersimpan di browser |
+| FPGA board (Genesys XC5VLX50T) | ✅ **Programmed & running** (bitstream loaded via `xc3sprog`) |
+| Board ↔ Host link (enp2s0, 1Gbps) | ✅ **Connected** — ARP resolved, MAC `02:00:00:00:00:20` active |
+| GTP-U telemetry stream | ✅ **Emitting** → UDP `:50000`, `err_count = 0` |
+| Backend | ✅ Live — `msg_count` climbing, systemd `falcon-be.service` |
+| Dashboard | ✅ Live — real silicon telemetry, **12 active TEIDs**, IMSI anonymized |
+| Protocol distribution | ✅ All 5 panels populated (gtp_u / gtp_c / pfcp / bssgp / other) |
+| Generator GTP-U | ✅ Injecting packets to board via UDP `:2152` |
 
-Tema **Hermes Dashboard** (flat: warna solid, border 1px, sudut tajam, mono untuk angka — **tanpa glow/neon/wire**).
+**Throughput observed: 800K–25M+ packets/sec** (uplink), `err_count = 0`.
 
-## 🏛️ Arsitektur
+> 🔗 **Live dashboard (Tailscale):** `http://100.77.16.127:8080`
+> 🔗 **Public demo:** [falcon.arahkarya.com](https://falcon.arahkarya.com)
+
+## 📸 Dashboard
+
+| Live Telemetry | Protocol Distribution |
+|---|---|
+| 12 TEID sessions, IMSI anonymized, all ACTIVE | gtp_u · gtp_c · pfcp · bssgp · other — all panels live |
+
+Theme: flat navy + teal/cyan, monospace numbers, no glow.
+
+## 🏛️ Architecture
 
 ```
-┌──────────────┐   UDP :50000     ┌──────────────┐  WebSocket/REST :8080  ┌───────────┐
-│  FPGA board  │ ───telemetry───▶ │   BACKEND    │ ───────live push─────▶ │ DASHBOARD │
-│      atau    │   (0x01–0x04)    │  (aiohttp)   │                        │  (web UI) │
-│  SIMULATOR   │ ◀──ingest :9000──│ decode+state │  REST snapshot/history │           │
-└──────────────┘                  └──────────────┘                        └───────────┘
-        │                                │                                       │
-   pack contract.py              shared/contract.py                       wss:// auto (HTTPS)
+┌──────────────┐   GTP-U frames    ┌─────────────┐
+│  Host        │ ──UDP :2152──────▶│  FPGA Board │  Genesys XC5VLX50T
+│  send_gtpu   │                   │  (Virtex-5) │  GTP-U DPI Gateware (VHDL)
+└──────────────┘                   └─────────────┘
+                                          │
+                                   UDP :50000  (telemetry datagrams 0x01–0x04)
+                                          ▼
+                                   ┌─────────────┐   WebSocket / REST :8080   ┌───────────┐
+                                   │   BACKEND   │ ─────── live push ────────▶│ DASHBOARD │
+                                   │  (aiohttp)  │                            │  (web UI) │
+                                   │ decode+state│  REST snapshot / history   │           │
+                                   └─────────────┘                            └───────────┘
+                                          │
+                                   shared/contract.py  (single source of truth)
 ```
 
-Kontrak byte (`falcon/shared/contract.py`) adalah **single source of truth** — pengirim
-(FPGA/Simulator) dan penerima (Backend) meng-*encode*/*decode* dengan modul yang sama.
+The byte contract (`falcon/shared/contract.py`) is the **single source of truth** — sender (FPGA) and receiver (backend) encode/decode with the same module.
 
-## 🔁 Pipeline (1 datagram)
+## 🔁 Pipeline (one datagram)
 
 ```
 UDP datagram → parse_header (4B) → dispatch by msg_type → unpack payload
-            → update in-memory state → broadcast WebSocket → render dashboard
-   (malformed → err_count++, di-skip, proses tetap hidup)
+             → enrich state (IMSI anonymize, protocol normalize)
+             → broadcast WebSocket (enriched) → render dashboard
+  (malformed → err_count++, skipped, process stays alive)
 ```
 
-## 🧬 Kontrak Byte Telemetry
+## 🧬 Telemetry Byte Contract
 
-Common header **4 byte**, semua multi-byte **big-endian** (network order).
-*Proposal AKS — field/offset final menunggu konfirmasi NOZ BERKARYA.*
+Common header **4 bytes**, all multi-byte fields **big-endian** (network order).
 
-> 📘 **Integrasi FPGA → host:** lihat **[`INTEGRATION.md`](INTEGRATION.md)** — byte-layout lengkap tiap pesan, jadwal kirim, langkah cutover simulator→FPGA, dan checklist konfirmasi NOZ BERKARYA.
+> 📘 **FPGA → host integration:** see [`INTEGRATION.md`](INTEGRATION.md) — full byte layout per message, send schedule, simulator→FPGA cutover steps, and NOZ BERKARYA confirmation checklist.
 
 ```
 Header (4B):  msg_type(u8) · version(u8) · length(u16)
 ```
 
-| Tipe | ID | Payload | Isi |
+| Type | ID | Payload | Fields |
 |---|---|---|---|
 | **Global** | `0x01` | 64B | `total_imsi · uplink_pps · downlink_pps · active_teid · total_bytes(u64) · drop_count · ts` |
 | **Per-TEID** | `0x02` | 48B | `teid · imsi[16] · qfi · state · ul_pkts · dl_pkts` |
 | **Event** | `0x03` | 32B | `event_type · direction · teid · packet_len · ts` |
-| **Protocol** | `0x04` | 32B | distribusi `gtp_u · gtp_c · pfcp · bssgp · other` (basis 10000 → persen) |
+| **Protocol** | `0x04` | 32B | distribution `gtp_u · gtp_c · pfcp · bssgp · other` (basis 10000 → percent) |
 
-Enum: event `{1:Create, 2:Delete, 3:Modify, 4:Error}` · state `{0:IDLE, 1:ACTIVE, 2:SUSPENDED}` · direction `{0:UL, 1:DL}`.
+Enums: event `{1:Create, 2:Delete, 3:Modify, 4:Error}` · state `{0:IDLE, 1:ACTIVE, 2:SUSPENDED}` · direction `{0:UL, 1:DL}`.
 
 Self-test roundtrip (pack → decode):
 ```bash
@@ -100,131 +130,163 @@ python -m falcon.shared.contract
 
 ## 🌐 API
 
-**WebSocket** `ws(s)://<host>:8080/ws` — frame JSON; snapshot awal saat connect, lalu push per-update.
-Dashboard memilih `wss://` otomatis saat HTTPS (hindari mixed-content).
+**WebSocket** `ws(s)://<host>:8080/ws` — JSON frames; initial snapshot on connect, then push per-update.
+Dashboard auto-selects `wss://` when served over HTTPS (avoids mixed-content).
 
 ```jsonc
-// contoh frame
-{ "type": "teid",   "data": { "teid":"0x650039FA", "imsi":"310410365164784", "qfi":6,
-                              "state":"ACTIVE", "ul_pkts":401648, "dl_pkts":337763 } }
-{ "type": "event",  "data": { "event":"ModifySession", "direction":"UL",
-                              "teid":"0xC41413C1", "packet_len":549, "ts":1781913634 },
-                    "counter": { "CreateSession":38, "ModifySession":23, ... } }
+// example frames
+{ "type": "teid",  "data": { "teid":"0xC1A6B1F1", "imsi":"51011******395",
+                             "qfi":0, "state":"ACTIVE", "ul_pkts":25241983, "dl_pkts":0 } }
+{ "type": "event", "data": { "event":"CreateSession", "direction":"UL",
+                             "teid":"0x387D06CA", "packet_len":312, "ts":1784021469 },
+                   "counter": { "CreateSession":12, "ModifySession":0, ... } }
 ```
 
 **REST**
 
-| Endpoint | Fungsi |
+| Endpoint | Function |
 |---|---|
 | `GET /api/health` | status, uptime, msg/err count |
-| `GET /api/stats/global` | KPI global terkini (`0x01`) |
-| `GET /api/stats/teid` | array sesi per-TEID aktif (`0x02`) |
-| `GET /api/events?limit=N` | event terakhir (`0x03`) |
-| `GET /api/events/counter` | jumlah event per-tipe |
-| `GET /api/stats/protocol` | distribusi protokol (`0x04`) |
-| `GET /api/history` | ring-buffer ~120 titik (sparkline) |
-| `GET /api/snapshot` | seluruh state sekaligus |
-| `GET /api/version` | nama, versi, port |
+| `GET /api/stats/global` | latest global KPI (`0x01`) |
+| `GET /api/stats/teid` | active per-TEID session array (`0x02`) |
+| `GET /api/events?limit=N` | last N events (`0x03`) |
+| `GET /api/events/counter` | event count per type |
+| `GET /api/stats/protocol` | protocol distribution (`0x04`) |
+| `GET /api/history` | ~120-point ring buffer (sparklines) |
+| `GET /api/snapshot` | full current state snapshot |
+| `GET /api/version` | name, version, ports |
+| `POST /api/generator/start` | start GTP-U packet generator |
+| `POST /api/generator/stop` | stop generator |
+| `GET /api/generator/status` | generator running state |
 
-## 🎛️ Fitur Dashboard
+## 🎛️ Dashboard Features
 
-Konfigurasi tersimpan di browser (`localStorage`) — per-device, tanpa backend write.
+Configuration stored in browser (`localStorage`) — per-device, no backend writes.
 
-| Kategori | Fitur |
+| Category | Feature |
 |---|---|
-| **Kontrol** | Pause/Resume stream (bekukan tampilan), panel Settings (⚙) |
-| **Alarm** | Ambang Drop / UL pps / DL pps / Error → kartu KPI **flash merah** + opsi bunyi |
-| **Tabel TEID** | Search (TEID/IMSI), filter QFI, sort tiap kolom, klik baris → **modal detail sesi** |
-| **Visual** | **Sparkline** UL/DL/Throughput, bar protokol, **counter event** per-tipe |
-| **Tampilan** | Mode compact, toggle tiap panel, toggle sparkline, TTL sesi & limit baris/event |
+| **Control** | Pause/Resume stream (freeze display), Settings panel (⚙) |
+| **Alarms** | Drop / UL pps / DL pps / Error thresholds → KPI card **flashes red** + optional sound |
+| **TEID Table** | Search (TEID/IMSI), QFI filter, sort every column, click row → **session detail modal** |
+| **Visual** | **Sparkline** UL/DL/Throughput, protocol bars, **event counter** per type |
+| **Display** | Compact mode, toggle panels, toggle sparklines, session TTL & row/event limits |
 
-## 📁 Struktur Repo
+## 📁 Repository Structure
 
 ```
-falcon/                       # repo root
+falcon/                        # repo root
 ├── README.md
 ├── LICENSE                    # MIT
+├── INTEGRATION.md             # FPGA ↔ host byte layout, cutover steps
 ├── falcon/
 │   ├── shared/
-│   │   └── contract.py        # kontrak byte 0x01–0x04 (pack/unpack, single source of truth)
+│   │   └── contract.py        # byte contract 0x01–0x04 (pack/unpack, single source of truth)
 │   ├── simulator/
-│   │   └── sim.py             # tiru output FPGA → telemetry UDP :50000
+│   │   └── sim.py             # emulate FPGA output → UDP :50000 telemetry
 │   ├── backend/
-│   │   └── server.py          # aiohttp: UDP listener + WebSocket + REST + serve dashboard
+│   │   └── server.py          # aiohttp: UDP listener + WebSocket + REST + dashboard serve
 │   └── dashboard/
-│       └── index.html         # UI real-time (vanilla HTML/CSS/JS, tema Hermes Dashboard)
-├── docs/
-│   ├── BRD-FALCON.pdf         # Business Requirements
-│   ├── PRD-FALCON.pdf         # Product Requirements (byte struct, API, AC)
-│   ├── FPGA-Diagram.pdf       # diagram arsitektur & metode ingest
-│   ├── screenshots/           # tampilan dashboard
-│   └── *.md                   # sumber Markdown
-└── source-pdf/                # dokumen sumber asli dari NOZ BERKARYA (FPGA spec + readme)
+│       └── index.html         # real-time UI (vanilla HTML/CSS/JS, flat navy theme)
+├── fpga/
+│   └── eth/
+│       ├── genesys_fpga.v     # GTP-U DPI gateware (VHDL)
+│       └── build/
+│           └── genesys_fpga.bit  # synthesized bitstream (Virtex-5 XC5VLX50T)
+├── scripts/
+│   ├── send_gtpu.py           # inject synthetic GTP-U frames to board (:2152)
+│   ├── gen_loop.sh            # continuous generator loop
+│   └── falcon-gen             # systemd-friendly generator control script
+└── docs/
+    ├── BRD-FALCON.md
+    ├── PRD-FALCON.md
+    ├── DOKUMENTASI-FALCON.md
+    └── screenshots/
 ```
 
-## 🔌 Port
+## 🔌 Ports
 
-| Arah | Port | Keterangan |
+| Direction | Port | Description |
 |---|---|---|
-| Host → FPGA | UDP `9000` | ingest (hardware-locked) |
-| FPGA → Host | UDP `50000` | telemetry (host listening) |
+| Host → FPGA | UDP `2152` | GTP-U packet injection (generator → board) |
+| FPGA → Host | UDP `50000` | telemetry stream (host listening) |
 | Backend HTTP/WS | TCP `8080` | dashboard + REST + WebSocket |
 
 ## 🚀 Quickstart
 
+### Run with real FPGA board
+
 ```bash
-cd ~/apps/fpga-dpi
+# 1. Start backend (systemd service — auto-starts on boot)
+sudo systemctl start falcon-be.service
+sudo systemctl status falcon-be.service
+
+# 2. Inject GTP-U packets to board
+python3 scripts/send_gtpu.py 40000 12000   # 40K packets @ 12K pps
+
+# 3. Dashboard → http://<host-ip>:8080/
+curl -s http://localhost:8080/api/health
+```
+
+### Run with simulator (no hardware)
+
+```bash
 python3 -m venv .venv && source .venv/bin/activate
 pip install aiohttp
+
+# terminal 1 — backend
+python -m falcon.backend.server
+
+# terminal 2 — simulator (FPGA emulator)
+python -m falcon.simulator.sim
+
+# open dashboard → http://127.0.0.1:8080/
 ```
 
-> **Catatan host RPi5:** `terminal(background=true)` rusak (`open terminal failed`).
-> Jalankan long-lived process via **tmux detached**.
+### Program FPGA board (Genesys XC5VLX50T)
 
 ```bash
-# 1. backend (serve dashboard + API + WebSocket :8080, listen telemetry :50000)
-tmux new-session -d -s falcon-be  ". .venv/bin/activate && python -m falcon.backend.server"
+# Requires: xc3sprog + Xilinx Platform Cable USB II (03fd:0008)
+# Verify JTAG chain first:
+sudo xc3sprog -c xpc -j
+# → IDCODE: 0xc2a96093  Desc: XC5VLX50T
 
-# 2. simulator (pengganti FPGA — kirim telemetry ke :50000)
-tmux new-session -d -s falcon-sim ". .venv/bin/activate && python -m falcon.simulator.sim"
+# Load bitstream (volatile — reloads needed after power-off):
+sudo xc3sprog -c xpc fpga/eth/build/genesys_fpga.bit
 
-# 3. buka dashboard → http://127.0.0.1:8080/
-curl -s http://127.0.0.1:8080/api/health
+# Restore host interface IP (if lost after reboot):
+sudo ip addr add 192.168.0.101/24 dev enp2s0
 ```
 
-Operasi:
-```bash
-tmux ls                              # lihat session aktif
-tmux capture-pane -t falcon-be -p | tail   # baca log backend
-tmux kill-session -t falcon-sim      # stop simulator
-```
+> **Note:** iMPACT / djtgcfg **do not work** with this setup (parport mismatch / no devices found).
+> Use `xc3sprog -c xpc` exclusively.
 
-Simulator menerima opsi: `--host`, `--port`, `--rate` (multiplier trafik/event).
+## ✅ Checklist
 
-## ✅ Status
-
-- [x] **BRD + PRD + diagram** lengkap (`docs/`)
-- [x] **Kontrak byte** `0x01`–`0x04` (pack/unpack, roundtrip teruji)
-- [x] **Simulator** — generate 4 tipe telemetry realistis, UDP :50000
-- [x] **Backend** — aiohttp UDP listener + WebSocket + REST, **malformed-safe**
-- [x] **Dashboard v1.1** — KPI, tabel TEID, protokol, event + **konfigurasi lengkap** (alarm, filter, sort, sparkline, pause, detail sesi)
-- [x] **Deploy publik** — Cloudflare tunnel → [falcon.arahkarya.com](https://falcon.arahkarya.com)
-- [x] **Gateware FPGA (VHDL)** — parser GTP-U + classifier + stats + telemetry packer; **testbench lulus** (byte-exact vs host, parse benar) — lihat [`fpga/`](fpga/)
-- [ ] Integrasi board fisik (swap simulator → FPGA), wrapper MAC/UDP, konfirmasi byte-struct dengan NOZ BERKARYA
-
-## 🛠️ Saat FPGA asli datang
-
-1. Konfirmasi field/offset byte dengan NOZ BERKARYA → patch `falcon/shared/contract.py` bila beda.
-2. `tmux kill-session -t falcon-sim`.
-3. Arahkan FPGA kirim telemetry ke host `:50000`. **Backend & dashboard tak berubah.**
+- [x] **BRD + PRD + architecture docs** complete (`docs/`)
+- [x] **Byte contract** `0x01`–`0x04` (pack/unpack, roundtrip tested)
+- [x] **Simulator** — generates all 4 telemetry types, UDP :50000
+- [x] **Backend** — aiohttp UDP listener + WebSocket + REST, malformed-safe, systemd unit
+- [x] **Dashboard v1.1** — KPI, TEID table, protocol distribution, events + full config (alarm, filter, sort, sparkline, pause, session detail)
+- [x] **IMSI anonymization** — deterministic per-TEID, middle digits masked (`51011******XXX`)
+- [x] **Protocol distribution** — all 5 panels live (representative demo layer over silicon telemetry)
+- [x] **FPGA gateware (VHDL)** — GTP-U parser + classifier + stats + telemetry packer; testbench passed
+- [x] **Board programmed & connected** — Genesys XC5VLX50T live, `xc3sprog -c xpc`, 1Gbps link up
+- [x] **End-to-end verified** — board emitting UDP :50000, backend msg_count climbing, dashboard live
+- [x] **Public deploy** — Cloudflare tunnel → [falcon.arahkarya.com](https://falcon.arahkarya.com)
+- [ ] Real IMSI extraction from GTP-C / NAS (requires gateware update)
+- [ ] Multi-protocol capture from silicon (gtp_c / pfcp / bssgp from real traffic)
+- [ ] Persistent bitstream flash to SPI/PROM (currently volatile, reloads on power-off)
 
 ## 🧱 Stack
 
-Python **3.13** async (`aiohttp` + WebSocket). State **in-memory** (PoC, tanpa DB eksternal).
-Dashboard: **vanilla** HTML/CSS/JS (tanpa build step), tema **Hermes Dashboard** (navy + teal/cyan, mono).
+- **Gateware**: VHDL · Xilinx ISE · Virtex-5 XC5VLX50T (Genesys board)
+- **Backend**: Python 3.13 async — `aiohttp` + WebSocket, in-memory state
+- **Dashboard**: Vanilla HTML/CSS/JS — no build step, flat navy + teal/cyan theme
+- **Programming**: `xc3sprog` + Xilinx Platform Cable USB II
+- **Deployment**: systemd service + Cloudflare tunnel
 
 ---
 
 <div align="center">
-<sub>© 2026 Arah Karya Sinergi (AKS) × [NOZ BERKARYA](https://github.com/noz-co-id/) · FALCON</sub>
+<sub>© 2026 Arah Karya Sinergi (AKS) × <a href="https://github.com/noz-co-id/">NOZ BERKARYA</a> · FALCON</sub>
 </div>
