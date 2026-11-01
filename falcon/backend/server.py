@@ -15,6 +15,10 @@ from shared import contract as C
 
 UDP_PORT = int(os.environ.get("FALCON_UDP_PORT", 50000))
 HTTP_PORT = int(os.environ.get("FALCON_HTTP_PORT", 8080))
+# FALCON_MODE   : "live" (board nyata, default) | "sim" (simulator; dashboard menampilkan banner SIMULASI)
+# FALCON_PUBLIC : "1" => deploy publik: endpoint kontrol generator (POST start/stop) ditolak 403
+MODE = os.environ.get("FALCON_MODE", "live").lower()
+PUBLIC = os.environ.get("FALCON_PUBLIC", "0") == "1"
 DASH_DIR = os.path.join(os.path.dirname(__file__), "..", "dashboard")
 GEN_CTL = os.path.join(os.path.dirname(__file__), "..", "..", "scripts", "falcon-gen")
 
@@ -256,20 +260,28 @@ def _gen(action):
     except Exception as e:
         return False, str(e)
 
+def _deny_public():
+    return web.json_response({"ok": False, "error": "generator control disabled on public deployment"}, status=403)
+
 async def api_gen_status(r):
+    if PUBLIC:
+        return web.json_response({"running": False, "detail": "disabled", "disabled": True})
     ok, out = _gen("status")
     running = out.startswith("RUNNING")
     return web.json_response({"running": running, "detail": out})
 
 async def api_gen_start(r):
+    if PUBLIC: return _deny_public()
     ok, out = _gen("start")
     return web.json_response({"ok": ok, "detail": out, "running": ("STARTED" in out or "ALREADY_RUNNING" in out)})
 
 async def api_gen_stop(r):
+    if PUBLIC: return _deny_public()
     ok, out = _gen("stop")
     return web.json_response({"ok": ok, "detail": out, "running": False})
 
-async def api_version(r):  return web.json_response({"name": "FALCON", "version": VERSION, "udp_port": UDP_PORT, "http_port": HTTP_PORT})
+async def api_version(r):  return web.json_response({"name": "FALCON", "version": VERSION, "udp_port": UDP_PORT, "http_port": HTTP_PORT,
+                              "mode": MODE, "public": PUBLIC})
 async def api_rawlog(r):
     lim = int(r.query.get("limit", 100))
     return web.json_response(list(state["rawlog"])[-lim:])
@@ -287,7 +299,7 @@ async def on_startup(app):
     await loop.create_datagram_endpoint(lambda: TelemetryProto(loop),
                                         local_addr=("0.0.0.0", UDP_PORT))
     asyncio.ensure_future(link_watcher())
-    print(f"[FALCON-BE] UDP listener :{UDP_PORT}  ·  HTTP/WS :{HTTP_PORT}")
+    print(f"[FALCON-BE] UDP listener :{UDP_PORT}  ·  HTTP/WS :{HTTP_PORT}  ·  mode={MODE} public={PUBLIC}")
 
 
 def make_app():

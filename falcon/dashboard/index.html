@@ -141,6 +141,8 @@
   .disc-live{ border-color:var(--teal)!important; background:rgba(22,199,154,.06)!important; }
   .tag-live{ background:var(--teal)!important; color:#06281f!important; font-weight:700; animation:pulse 2s infinite; }
   @keyframes pulse{ 0%,100%{opacity:1} 50%{opacity:.55} }
+  .disc-sim{ border-color:var(--amber)!important; background:rgba(240,165,0,.07)!important; }
+  .tag-sim{ background:var(--amber)!important; color:#2a1c00!important; font-weight:700; }
   .rawlog{ max-height:340px; overflow-y:auto; font-family:'JetBrains Mono',monospace; font-size:10.5px; }
   .rawlog table{ width:100%; }
   .rawlog th{ position:sticky; top:0; background:var(--card); z-index:1; }
@@ -216,9 +218,9 @@
     </div>
   </header>
 
-  <div class="disc disc-live">
-    <span class="tag tag-live">● LIVE · FPGA</span>
-    <span><b>Telemetri silikon nyata.</b> Data di-parse langsung oleh gateware FALCON (XC5VLX50T) dari paket GTP-U → emit ke backend via UDP :50000. Bukan simulator.</span>
+  <div class="disc disc-live" id="modebanner">
+    <span class="tag tag-live" id="modetag">● LIVE · FPGA</span>
+    <span id="modetext"><b>Telemetri silikon nyata.</b> Data di-parse langsung oleh gateware FALCON (XC5VLX50T) dari paket GTP-U → emit ke backend via UDP :50000. Bukan simulator.</span>
   </div>
 
   <div class="pausebar" id="pausebar">⏸ STREAM DIJEDA — tampilan dibekukan untuk inspeksi. Klik ⏸ untuk lanjut.</div>
@@ -613,7 +615,7 @@ function toggleGen(){
 }
 if($('btn-gen')) $('btn-gen').onclick=toggleGen;
 pollGen();
-setInterval(pollGen, 4000);
+setInterval(()=>{ if(!window.__noGen) pollGen(); }, 4000);
 
 function connect(){
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
@@ -636,7 +638,8 @@ function pushTs(p){
 function renderLink(l){
   linkUp = !!l.connected;
   const b=$('linkbadge'); b.classList.toggle('up', linkUp); b.classList.toggle('down', !linkUp);
-  $('linktxt').textContent = linkUp ? 'FPGA CONNECTED' : (l.last_rx ? 'FPGA DISCONNECTED' : 'FPGA BELUM ADA DATA');
+  const SRC = window.__simMode ? 'SIM' : 'FPGA';
+  $('linktxt').textContent = linkUp ? (SRC+' '+(window.__simMode?'AKTIF':'CONNECTED')) : (l.last_rx ? SRC+' DISCONNECTED' : SRC+' BELUM ADA DATA');
   $('linkbar').classList.toggle('on', !linkUp && !!l.last_rx);
   document.body.classList.toggle('nolink', !linkUp && !!l.last_rx);
   if(!linkUp && l.last_rx_age!=null) $('linkage').textContent = '(' + Math.round(l.last_rx_age) + ' dtk terakhir)';
@@ -716,6 +719,17 @@ document.querySelectorAll('#evfilter span').forEach(el=>el.onclick=()=>{
   document.querySelectorAll('#events .ev').forEach(e=>{ e.style.display=(!evSev||e.dataset.sv===evSev)?'':'none'; }); });
 // seed stale link status bila server belum kirim
 setInterval(()=>{ if(!$('dot').classList.contains('on')){ $('linktxt').textContent='BACKEND TERPUTUS'; $('linkbadge').classList.remove('up'); $('linkbadge').classList.add('down'); } }, 2000);
+
+
+// ---- mode: live vs simulasi, deploy publik ----
+fetch('/api/version').then(r=>r.json()).then(v=>{
+  if(v.mode==='sim'){ window.__simMode=true;
+    $('modebanner').classList.remove('disc-live'); $('modebanner').classList.add('disc-sim');
+    $('modetag').className='tag tag-sim'; $('modetag').textContent='◐ SIMULASI';
+    $('modetext').innerHTML='<b>Data simulasi.</b> Telemetri dibangkitkan simulator dengan kontrak byte identik gateware FALCON — bukan dari board FPGA. Demo antarmuka; board silikon terhubung di lab NOZ BERKARYA.';
+  }
+  if(v.public){ const g=$('btn-gen'); if(g) g.style.display='none'; const gb=$('genbar'); if(gb) gb.style.display='none'; window.__noGen=true; }
+}).catch(()=>{});
 
 // ---- init ----
 document.querySelector('.arr[data-a="ul_pkts"]').textContent='▼';
