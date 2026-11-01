@@ -13,24 +13,27 @@ from aiohttp import web
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from shared import contract as C
 
-UDP_PORT = 50000
-HTTP_PORT = 8080
+UDP_PORT = int(os.environ.get("FALCON_UDP_PORT", 50000))
+HTTP_PORT = int(os.environ.get("FALCON_HTTP_PORT", 8080))
 DASH_DIR = os.path.join(os.path.dirname(__file__), "..", "dashboard")
 GEN_CTL = os.path.join(os.path.dirname(__file__), "..", "..", "scripts", "falcon-gen")
 
 # ---- in-memory state ----
+HISTORY_MAX = 900          # titik history (1 titik/detik => 15 menit)
+LINK_TIMEOUT = 3.0         # detik tanpa datagram => board dianggap Disconnected
 state = {
+    "last_rx": 0.0, "prev_global": None, "alert_last": {},
     "global": {}, "protocol": {},
     "teid": {},                      # teid -> latest dict
     "events": collections.deque(maxlen=100),
-    "history": collections.deque(maxlen=120),   # ring-buffer global stats utk sparkline (~120 titik)
+    "history": collections.deque(maxlen=HISTORY_MAX),   # ring-buffer global stats ~15 menit @1Hz (chart + sparkline)
     "evt_counter": {"CreateSession": 0, "ModifySession": 0, "DeleteSession": 0, "Error": 0},
     "started": time.time(), "msg_count": 0, "err_count": 0,
     "rawlog": collections.deque(maxlen=200),   # raw datagram feed (FPGA log)
 }
 TYPE_NAMES = {0x01: "GLOBAL", 0x02: "TEID", 0x03: "EVENT", 0x04: "PROTOCOL"}
 _raw_seq = [0]
-VERSION = "1.1.0"
+VERSION = "1.2.0"
 TEID_TTL = 15  # detik; sesi tak update dianggap mati
 ws_clients = set()
 
@@ -49,11 +52,55 @@ async def broadcast(msg: dict):
         ws_clients.discard(ws)
 
 
+SEVERITY = {"CreateSession": "INFO", "ModifySession": "INFO", "DeleteSession": "WARN", "Error": "CRITICAL"}
+DROP_WARN_PCT = 1.0
+DROP_CRIT_PCT = 5.0
+
+
+def derive_rates(g: dict, ts: int):
+    """Hitung bps, delta drop & drop-rate% dari selisih dua datagram 0x01 berurutan.
+    Counter reset (nilai turun) => rate 0, bukan negatif."""
+    prev = state["prev_global"]
+    bps = 0.0; ddrop = 0; drop_rate = 0.0
+    if prev is not None:
+        dt = max(ts - prev["ts"], 1)
+        db = g.get("total_bytes", 0) - prev["total_bytes"]
+        dd = g.get("drop_count", 0) - prev["drop_count"]
+        if db >= 0:
+            bps = db * 8 / dt
+        if dd >= 0:
+            ddrop = dd
+            pkts = (g.get("uplink_pps", 0) + g.get("downlink_pps", 0)) * dt
+            if pkts > 0:
+                drop_rate = min(100.0, ddrop / pkts * 100)
+    state["prev_global"] = {"ts": ts, "total_bytes": g.get("total_bytes", 0), "drop_count": g.get("drop_count", 0)}
+    return bps, ddrop, drop_rate
+
+
+def maybe_alert(name: str, severity: str, ts: int, detail: str, cooldown: int = 10):
+    """Alert sintetis server-side (DropSpike dst), dibatasi cooldown agar feed tak banjir."""
+    now = time.time()
+    if now - state["alert_last"].get(name, 0) < cooldown:
+        return None
+    state["alert_last"][name] = now
+    ev = {"event": name, "severity": severity, "direction": "-", "teid": "-", "packet_len": 0,
+          "detail": detail, "ts": ts, "synthetic": True}
+    state["events"].appendleft(ev)
+    return ev
+
+
 def update_state(msg: dict):
     t = msg["type"]
     if t == "global":
-        g = {**msg["data"], "ts": msg.get("ts")}
+        ts = msg.get("ts") or int(time.time())
+        bps, ddrop, drop_rate = derive_rates(msg["data"], ts)
+        msg["data"].update({"bps": round(bps), "drop_delta": ddrop, "drop_rate": round(drop_rate, 3)})
+        g = {**msg["data"], "ts": ts}
         state["global"] = g
+        if drop_rate >= DROP_CRIT_PCT:
+            msg["alert"] = maybe_alert("DropSpike", "CRITICAL", ts, f"drop {drop_rate:.1f}% (+{ddrop} pkt)")
+        elif drop_rate >= DROP_WARN_PCT:
+            msg["alert"] = maybe_alert("DropSpike", "WARN", ts, f"drop {drop_rate:.1f}% (+{ddrop} pkt)")
         # rekam histori ringan utk sparkline (UL/DL/throughput/drop)
         state["history"].append({
             "ts": g.get("ts") or int(time.time()),
@@ -61,6 +108,8 @@ def update_state(msg: dict):
             "dl": g.get("downlink_pps", 0),
             "bytes": g.get("total_bytes", 0),
             "drop": g.get("drop_count", 0),
+            "bps": g.get("bps", 0),
+            "drop_rate": g.get("drop_rate", 0),
         })
     elif t == "protocol":
         state["protocol"] = {**msg["data"], "ts": msg.get("ts", int(time.time()))}
@@ -69,6 +118,8 @@ def update_state(msg: dict):
         state["teid"][d["teid"]] = d
     elif t == "event":
         ev = {**msg["data"], "ts": msg.get("ts")}
+        ev["severity"] = SEVERITY.get(ev.get("event"), "INFO")
+        msg["data"]["severity"] = ev["severity"]
         state["events"].appendleft(ev)
         name = ev.get("event")
         if name in state["evt_counter"]:
@@ -87,6 +138,7 @@ class TelemetryProto(asyncio.DatagramProtocol):
         self.loop = loop
     def datagram_received(self, data, addr):
         state["msg_count"] += 1
+        state["last_rx"] = time.time()
         _raw_seq[0] += 1
         tid = data[0] if len(data) > 0 else -1
         rawrec = {
@@ -119,7 +171,11 @@ class TelemetryProto(asyncio.DatagramProtocol):
             msg["data"] = {k: v for k, v in msg["data"].items() if not k.startswith("_")}
         elif msg["type"] == "event":
             msg["counter"] = dict(state["evt_counter"])   # sertakan counter terkini
+        alert = msg.pop("alert", None)
         asyncio.ensure_future(broadcast(msg))
+        if alert:
+            asyncio.ensure_future(broadcast({"type": "event", "ts": alert["ts"], "data": alert,
+                                             "counter": dict(state["evt_counter"])}))
         asyncio.ensure_future(broadcast({"type": "rawlog", "data": rawrec}))
 
 
@@ -138,9 +194,24 @@ async def ws_handler(request):
     return ws
 
 
+def link_status():
+    age = time.time() - state["last_rx"] if state["last_rx"] else None
+    return {"connected": age is not None and age <= LINK_TIMEOUT,
+            "last_rx_age": None if age is None else round(age, 1),
+            "last_rx": state["last_rx"] or None}
+
+
+async def link_watcher():
+    """Broadcast status link FPGA ~1Hz; UI menampilkan Disconnected bila board diam (>LINK_TIMEOUT)."""
+    while True:
+        await asyncio.sleep(1.0)
+        await broadcast({"type": "link", "data": link_status()})
+
+
 def snapshot():
     expire_teids()
     return {
+        "link": link_status(),
         "global": state["global"],
         "protocol": state["protocol"],
         "teid": [{k: v for k, v in d.items() if not k.startswith("_")}
@@ -164,7 +235,17 @@ async def api_events(r):
     return web.json_response(list(state["events"])[:lim])
 async def api_protocol(r): return web.json_response(state["protocol"])
 async def api_snapshot(r): return web.json_response(snapshot())
-async def api_history(r):  return web.json_response(list(state["history"]))
+async def api_history(r):
+    """?window=<detik> => hanya titik dalam N detik terakhir (default semua)."""
+    h = list(state["history"])
+    try:
+        w = int(r.query.get("window", 0))
+    except ValueError:
+        w = 0
+    if w > 0:
+        h = h[-w:]
+    return web.json_response(h)
+async def api_link(r):     return web.json_response(link_status())
 async def api_evtcounter(r): return web.json_response(state["evt_counter"])
 def _gen(action):
     """run falcon-gen <action>, return (ok, output)."""
@@ -205,6 +286,7 @@ async def on_startup(app):
     loop = asyncio.get_event_loop()
     await loop.create_datagram_endpoint(lambda: TelemetryProto(loop),
                                         local_addr=("0.0.0.0", UDP_PORT))
+    asyncio.ensure_future(link_watcher())
     print(f"[FALCON-BE] UDP listener :{UDP_PORT}  ·  HTTP/WS :{HTTP_PORT}")
 
 
@@ -221,6 +303,7 @@ def make_app():
         web.get("/api/stats/protocol", api_protocol),
         web.get("/api/snapshot", api_snapshot),
         web.get("/api/history", api_history),
+        web.get("/api/link", api_link),
         web.get("/api/events/counter", api_evtcounter),
         web.get("/api/version", api_version),
         web.get("/api/generator/status", api_gen_status),

@@ -5,7 +5,10 @@ Kirim telemetry palsu (4 tipe) via UDP ke backend :50000. Mirror PRD §7.1.
 Jadwal: 0x01 global tiap 1s · 0x04 protocol tiap 1s ·
         0x02 per-TEID tiap 2s (semua sesi aktif) · 0x03 event acak (Poisson).
 
-Usage: python3 sim.py [--host 127.0.0.1] [--port 50000] [--rate 1.0]
+Usage: python3 sim.py [--host 127.0.0.1] [--port 50000] [--rate 1.0] [--flood-every 0] [--silent-after 0]
+
+  --flood-every N  : tiap N detik simulasikan 8 detik Tunnel Flooding (traffic 5x + drop melonjak)
+  --silent-after N : berhenti kirim setelah N detik (uji status Disconnected)
 """
 import argparse, random, socket, time, sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
@@ -38,7 +41,10 @@ def main():
     ap.add_argument("--host", default="127.0.0.1")
     ap.add_argument("--port", type=int, default=50000)
     ap.add_argument("--rate", type=float, default=1.0, help="multiplier traffic/event")
+    ap.add_argument("--flood-every", type=int, default=0)
+    ap.add_argument("--silent-after", type=int, default=0)
     args = ap.parse_args()
+    t_start = time.time()
 
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     dst = (args.host, args.port)
@@ -54,6 +60,9 @@ def main():
         while True:
             now = time.time()
             ts = int(now)
+            if args.silent_after and now - t_start > args.silent_after:
+                time.sleep(1.0); continue
+            flooding = bool(args.flood_every) and (int(now - t_start) % args.flood_every) < 8 and now - t_start > 5
 
             # churn sesi: kadang tambah/hapus
             if random.random() < 0.1 and len(sessions) < 60:
@@ -66,10 +75,12 @@ def main():
             for s in sessions:
                 s.tick()
 
-            ul_pps = int(sum(1 for _ in sessions) * random.randint(120, 200) * args.rate)
+            ul_pps = int(sum(1 for _ in sessions) * random.randint(120, 200) * args.rate * (5 if flooding else 1))
             dl_pps = int(ul_pps * random.uniform(0.4, 0.7))
             byte_total += (ul_pps + dl_pps) * 250
-            if random.random() < 0.03:
+            if flooding:
+                drop_total += int((ul_pps + dl_pps) * random.uniform(0.02, 0.08))
+            elif random.random() < 0.03:
                 drop_total += random.randint(1, 5)
 
             # 0x01 global (tiap 1s)
