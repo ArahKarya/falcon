@@ -86,6 +86,9 @@ architecture rtl of falcon_top is
   -- packer drive
   signal pk_type  : std_logic_vector(7 downto 0) := (others=>'0');
   signal pk_start : std_logic := '0';
+  -- rate_clear otomatis: counter pps di-nol-kan tepat saat paket GLOBAL (0x01) dikirim,
+  -- supaya ul_pps/dl_pps = paket per interval emit (1 detik), bukan kumulatif sejak load.
+  signal rate_clr_i : std_logic;
 
   -- Fase 1.5: auto-event detector + latch paket terakhir
   signal evd_teid  : std_logic_vector(31 downto 0) := (others=>'0');
@@ -173,7 +176,7 @@ begin
     port map (
       clk=>clk, rst=>rst,
       pkt_valid=>p_done, pkt_dir=>pkt_dir, pkt_bytes=>p_ulen,
-      pkt_drop=>'0', cls=>cls, cls_valid=>cls_valid, rate_clear=>rate_clear,
+      pkt_drop=>'0', cls=>cls, cls_valid=>cls_valid, rate_clear=>rate_clr_i,
       ul_pps=>s_ul, dl_pps=>s_dl, total_bytes=>s_bytes, drop_count=>s_drop,
       c_gtpu=>s_gu, c_gtpc=>s_gc, c_pfcp=>s_pf, c_bssgp=>s_bs, c_other=>s_ot
     );
@@ -195,6 +198,10 @@ begin
       p_bssgp=>lo16(s_bs), p_other=>lo16(s_ot),
       dgram=>tx_dgram, dgram_len=>tx_len, valid=>tx_valid
     );
+
+  -- paket pk_start+GLOBAL men-sample s_ul/s_dl pada tepi yang sama dengan clear ini,
+  -- jadi nilai terkirim = hitungan interval sebelumnya; paket yang tiba pas clear tetap terhitung.
+  rate_clr_i <= '1' when (rate_clear = '1') or (pk_start = '1' and pk_type = FALCON_TYPE_GLOBAL) else '0';
 
   -- ---- arbiter emit (prioritas: event > teid > global > protocol) ----
   process(clk)
