@@ -281,17 +281,16 @@ demo = {"enabled": False, "active": False, "pps": 0, "on_s": 0, "off_s": 0, "nex
 
 
 def _load_payloads():
-    """Muat payload GTP-U dari vektor uji (buang Eth+IP+UDP 42B, sama seperti MAC di silikon)."""
-    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "fpga", "tb", "vectors", "imsi_frames.txt")
+    """Payload GTP-U sintetis (sesuai silikon: tanpa header Eth/IP/UDP). 20 TEID tetap -> tabel sesi stabil.
+    Format: flags 0x30, type 0xFF (G-PDU), length, TEID, lalu isi acak berukuran bervariasi."""
+    import random, struct
+    rnd = random.Random(2152)
     out = []
-    try:
-        with open(path) as f:
-            for line in f:
-                parts = line.split()
-                if len(parts) >= 3:
-                    out.append(bytes.fromhex(parts[2])[42:])
-    except OSError:
-        pass
+    for i in range(20):
+        teid = 0x1000 + i * 0x111
+        for plen in (4, 12, 64, 180):
+            body = bytes(rnd.getrandbits(8) for _ in range(plen))
+            out.append(struct.pack(">BBHI", 0x30, 0xFF, plen, teid) + body)
     return out
 
 
