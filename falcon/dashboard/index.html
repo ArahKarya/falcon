@@ -4,6 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>FALCON · Live Telemetry</title>
+<link rel="icon" type="image/png" sizes="32x32" href="/static/favicon-32.png">
+<link rel="apple-touch-icon" href="/static/falcon-logo-192.png">
 <style>
   :root{ --navy:#0F3460; --navy2:#0B1B3D; --teal:#16C79A; --cyan:#48CAE4; --dark:#16213E;
          --bg:#0c1424; --card:#13203a; --line:#22304d; --mut:#8294ad; --amber:#F0A500; --red:#e0533f; }
@@ -14,7 +16,7 @@
   .wrap{ position:relative; z-index:1; max-width:1320px; margin:0 auto; padding:20px 24px 40px; }
 
   header{ display:flex; align-items:center; gap:14px; padding-bottom:18px; border-bottom:1px solid var(--line); }
-  .logo{ width:40px; height:40px; }
+  .logo{ width:44px; height:44px; border-radius:10px; box-shadow:0 0 14px rgba(0,229,255,.35); }
   .brand h1{ font-size:20px; font-weight:800; letter-spacing:-.3px; }
   .brand small{ color:var(--cyan); font-size:10px; letter-spacing:2.5px; text-transform:uppercase; font-weight:600; }
   .status{ margin-left:auto; display:flex; align-items:center; gap:14px; font-size:12px; font-family:'JetBrains Mono',monospace; }
@@ -98,6 +100,48 @@
   .disc b{ color:#FFB733; font-weight:700; letter-spacing:.4px; }
   .disc .tag{ flex-shrink:0; padding:2px 7px; background:#3d2c0a; color:#FFB733;
               border-radius:2px; font-size:9px; font-weight:700; letter-spacing:.6px; }
+
+
+  /* ---- demo badge, tema terang, mode presentasi, tentang pengukuran ---- */
+  .demobar{ display:none; align-items:center; gap:10px; margin:10px 0; padding:8px 14px; border-radius:4px; font-size:12px;
+            background:rgba(72,202,228,.08); border:1px dashed var(--cyan); color:#bfeaf3; }
+  .demobar.show{ display:flex; }
+  .demobar .tag{ padding:2px 8px; background:var(--cyan); color:#06202a; border-radius:2px; font-size:10px; font-weight:800; letter-spacing:.6px; flex:none; }
+  .demobar .ph{ margin-left:auto; font-family:'JetBrains Mono',monospace; font-size:11px; color:var(--mut); white-space:nowrap; }
+  .demobar .ph.live{ color:var(--teal); }
+  .expbtn{ cursor:pointer; font-size:10px; font-weight:600; letter-spacing:.5px; padding:2px 8px; border:1px solid var(--line);
+           border-radius:3px; color:var(--mut); background:transparent; margin-left:6px; }
+  .expbtn:hover{ color:#fff; border-color:var(--cyan); }
+  .measure{ max-height:62vh; overflow-y:auto; font-size:12px; }
+  .measure .mi{ padding:10px 0; border-bottom:1px solid var(--line); }
+  .measure .mi b{ color:#fff; } .measure .mi .u{ color:var(--mut); font-family:'JetBrains Mono',monospace; font-size:10px; margin-left:6px; }
+  .measure .mi p{ color:#aab8cc; margin-top:4px; line-height:1.5; }
+  .stt{ display:inline-block; padding:1px 7px; border-radius:2px; font-size:9px; font-weight:800; letter-spacing:.5px; margin-left:8px; }
+  .stt.valid{ background:rgba(22,199,154,.18); color:var(--teal); }
+  .stt.sebagian{ background:rgba(240,165,0,.18); color:var(--amber); }
+  .stt.belum-ada{ background:rgba(224,83,63,.18); color:var(--red); }
+
+  body.light{ --bg:#eef2f8; --card:#ffffff; --line:#d3dcea; --mut:#5b6b85; --dark:#e3e9f3; --navy2:#dbe4f2; color:#122033; }
+  body.light .kpi .val, body.light .brand h1, body.light .mbox .mh h3, body.light .drawer .dh h3,
+  body.light .measure .mi b, body.light h2{ color:#0d1b30; }
+  body.light .frow label, body.light .dbtn, body.light .measure .mi p{ color:#2c3e5c; }
+  body.light .hbtn:hover, body.light .expbtn:hover{ color:#0d1b30; }
+  body.light .demobar{ color:#0a4a5c; background:rgba(72,202,228,.14); }
+  body.light input, body.light select{ background:#f6f8fc !important; color:#122033 !important; }
+  body.light td, body.light th{ color:#1f3050; }
+
+  body.present .wrap{ max-width:none; padding:22px 44px; }
+  body.present #p-teid, body.present #p-rawlog, body.present #p-event, body.present footer,
+  body.present #drawer, body.present #btn-gen, body.present #btn-settings,
+  body.present .notice, body.present .banner, body.present #pausebar{ display:none !important; }
+  body.present .grid{ display:block; }
+  body.present .grid > div{ display:grid; grid-template-columns:1.2fr 1fr; gap:22px; }
+  body.present .grid > div .panel{ margin-bottom:0 !important; }
+  body.present .kpi .val{ font-size:54px; line-height:1.05; } body.present .kpi .lbl{ font-size:13px; letter-spacing:1px; }
+  body.present .kpi .sub{ font-size:14px; }
+  body.present .brand h1{ font-size:30px; } body.present .panel h2{ font-size:18px; }
+  body.present .demobar{ font-size:14px; padding:10px 18px; }
+  body.present #modebanner{ padding:6px 14px; font-size:12px; } body.present #modebanner > :not(:first-child){ display:none; }
 
   /* drawer settings */
   .scrim{ position:fixed; inset:0; background:rgba(5,9,18,.6); z-index:50; display:none; }
@@ -200,11 +244,7 @@
 <body>
 <div class="wrap">
   <header>
-    <svg class="logo" viewBox="0 0 48 48" fill="none">
-      <path d="M24 3 42 13.5v21L24 45 6 34.5v-21L24 3Z" stroke="#48CAE4" stroke-width="2.5"/>
-      <path d="M16 30 24 16l8 14" stroke="#fff" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>
-      <path d="M20 30h8" stroke="#48CAE4" stroke-width="2.5" stroke-linecap="round"/>
-    </svg>
+    <img class="logo" src="/static/falcon-logo-64.png" srcset="/static/falcon-logo-64.png 1x, /static/falcon-logo-192.png 3x" width="44" height="44" alt="FALCON">
     <div class="brand">
       <h1>FALCON <span style="color:var(--cyan)">Live Telemetry</span></h1>
       <small>Arah Karya Sinergi · GTP-U DPI Engine</small>
@@ -213,6 +253,9 @@
       <span class="linkbadge" id="linkbadge"><i></i><span id="linktxt">FPGA —</span></span>
       <span class="conn-wrap"><span class="dot" id="dot"></span><span id="conn">menyambung…</span></span>
       <span class="hbtn" id="btn-gen" title="Start / Stop generator GTP-U">▶</span>
+      <span class="hbtn" id="btn-measure" title="Tentang pengukuran (arti tiap angka & keterbatasan)">ⓘ</span>
+      <span class="hbtn" id="btn-theme" title="Tema terang / gelap">◐</span>
+      <span class="hbtn" id="btn-present" title="Mode presentasi (layar penuh, tanpa panel debug)">⛶</span>
       <span class="hbtn" id="btn-pause" title="Pause / Resume stream">⏸</span>
       <span class="hbtn" id="btn-settings" title="Pengaturan">⚙</span>
     </div>
@@ -222,6 +265,10 @@
     <span class="tag tag-live" id="modetag">● LIVE · FPGA</span>
     <span id="modetext"><b>Telemetri silikon nyata.</b> Data di-parse langsung oleh gateware FALCON (XC5VLX50T) dari paket GTP-U → emit ke backend via UDP :50000. Bukan simulator.</span>
   </div>
+
+  <div class="demobar" id="demobar"><span class="tag">TRAFIK UJI SINTETIS</span>
+    <span id="demotext">Paket GTP-U uji dikirim otomatis ke board agar tampilan tetap hidup. Bukan traffic jaringan nyata.</span>
+    <span class="ph" id="demoph">—</span></div>
 
   <div class="pausebar" id="pausebar">⏸ STREAM DIJEDA — tampilan dibekukan untuk inspeksi. Klik ⏸ untuk lanjut.</div>
   <div class="genbar" id="genbar"><span class="gdot" id="gdot"></span><span id="gtext">Generator: memeriksa…</span></div>
@@ -238,7 +285,7 @@
   </div>
 
   <div class="charts" id="charts">
-    <div class="panel"><h2>Paket / detik <span class="tag">UL · DL</span><span class="spacer"></span>
+    <div class="panel"><h2>Paket / detik <span class="tag">UL · DL</span><button class="expbtn" id="exp-hist" title="Unduh riwayat 15 menit sebagai CSV">CSV</button><button class="expbtn" id="exp-png" title="Unduh dashboard sebagai PNG">PNG</button><span class="spacer"></span>
       <div class="legend"><span><b style="background:#16C79A"></b>UL</span><span><b style="background:#48CAE4"></b>DL</span></div>
       <div class="winsel" id="winsel"><span data-w="60">1m</span><span data-w="300" class="on">5m</span><span data-w="900">15m</span></div></h2>
       <div class="chartbox" id="cb-pps"><svg id="ch-pps" preserveAspectRatio="none"></svg><div class="ctip" id="tip-pps"></div></div></div>
@@ -249,7 +296,7 @@
 
   <div class="grid">
     <div class="panel" id="p-teid">
-      <h2>Sesi Aktif (Per-TEID) <span class="tag" id="teid-count">0</span></h2>
+      <h2>Sesi Aktif (Per-TEID) <span class="tag" id="teid-count">0</span><span class="spacer"></span><button class="expbtn" id="exp-teid" title="Unduh sesi aktif sebagai CSV">CSV</button></h2>
       <div class="toolbar">
         <input class="search" id="f-search" placeholder="cari TEID / IMSI…">
         <select id="f-qfi"><option value="">Semua QFI</option></select>
@@ -280,7 +327,7 @@
         <div class="proto" id="proto"></div>
       </div>
       <div class="panel" id="p-event">
-        <h2>Event Real-time <span class="tag">0x03</span><span class="spacer"></span></h2>
+        <h2>Event Real-time <span class="tag">0x03</span><span class="spacer"></span><button class="expbtn" id="exp-ev" title="Unduh event sebagai CSV">CSV</button></h2>
         <div class="evcount">
           <div class="evc create"><div class="n" id="ec-create">0</div><div class="l">Create</div></div>
           <div class="evc modify"><div class="n" id="ec-modify">0</div><div class="l">Modify</div></div>
@@ -347,6 +394,10 @@
 </div>
 
 <!-- Modal Detail TEID -->
+<div class="modal" id="mmeasure"><div class="mbox" style="width:640px">
+  <div class="mh"><h3>Tentang pengukuran</h3><span class="x" id="mmeasure-x">×</span></div>
+  <div class="mb"><p style="color:var(--mut);font-size:11px;margin-bottom:6px">Arti tiap angka dan keterbatasan gateware saat ini. Nilai 0 bisa berarti "tidak ada traffic" atau "belum diukur"; badge menunjukkan mana yang berlaku.</p>
+  <div class="measure" id="measure-body">memuat…</div></div></div></div>
 <div class="modal" id="modal">
   <div class="mbox">
     <div class="mh"><h3>Detail Sesi <span class="teid" id="m-teid"></span></h3><span class="x" id="m-close">×</span></div>
@@ -466,7 +517,7 @@ function showDetail(teid){
 }
 
 // ---- Event feed + counter ----
-const EVICO={CreateSession:['create','+'],DeleteSession:['delete','×'],ModifySession:['modify','~'],Error:['delete','!'],DropSpike:['delete','▲']};
+const EVICO={'G-PDU':['modify','↹'],EchoRequest:['modify','⇢'],EchoResponse:['modify','⇠'],EndMarker:['delete','⊣'],ErrorIndication:['delete','!'],CreateSession:['create','+'],DeleteSession:['delete','×'],ModifySession:['modify','~'],Error:['delete','!'],DropSpike:['delete','▲']};
 let evSev='';
 function addEvent(d){
   const box=$('events'); if(box.querySelector('.empty')) box.innerHTML='';
@@ -731,9 +782,91 @@ fetch('/api/version').then(r=>r.json()).then(v=>{
   if(v.public){ const g=$('btn-gen'); if(g) g.style.display='none'; const gb=$('genbar'); if(gb) gb.style.display='none'; window.__noGen=true; }
 }).catch(()=>{});
 
+// ---- demo traffic bar ----
+let demoState = null;
+function renderDemo(){
+  const bar=$('demobar'); if(!demoState || !demoState.enabled){ bar.classList.remove('show'); return; }
+  bar.classList.add('show');
+  const ph=$('demoph'); const left=Math.max(0, (demoState.next_flip||0) - Math.floor(Date.now()/1000));
+  if(demoState.active){ ph.className='ph live'; ph.textContent='● mengirim ~'+demoState.pps+' pps · '+left+' dtk lagi'; }
+  else { ph.className='ph'; ph.textContent='○ jeda · lanjut '+left+' dtk lagi'; }
+}
+function pollDemo(){ fetch('/api/demo').then(r=>r.json()).then(d=>{ demoState=d; renderDemo(); }).catch(()=>{}); }
+setInterval(renderDemo, 1000);
+
+// ---- tentang pengukuran ----
+$('btn-measure').onclick=()=>{
+  $('mmeasure').classList.add('open');
+  fetch('/api/measure').then(r=>r.json()).then(m=>{
+    $('measure-body').innerHTML=m.items.map(i=>`<div class="mi"><b>${i.name}</b><span class="u">${i.unit}</span><span class="stt ${i.status}">${i.status.toUpperCase()}</span><p>${i.note}</p></div>`).join('')
+      + `<div class="mi"><p style="color:var(--mut)">FALCON v${m.version} · mode ${m.mode}. Sumber kebenaran: datagram telemetri 0x01–0x04 dari gateware XC5VLX50T.</p></div>`;
+  }).catch(()=>{ $('measure-body').textContent='gagal memuat /api/measure'; });
+};
+$('mmeasure-x').onclick=()=>$('mmeasure').classList.remove('open');
+$('mmeasure').addEventListener('click',e=>{ if(e.target===$('mmeasure')) $('mmeasure').classList.remove('open'); });
+
+// ---- tema & presentasi (disimpan di localStorage) ----
+function applyView(){
+  document.body.classList.toggle('light', localStorage.getItem('falcon.theme')==='light');
+  document.body.classList.toggle('present', localStorage.getItem('falcon.present')==='1');
+  if(typeof drawCharts==='function') setTimeout(drawCharts, 50);
+}
+$('btn-theme').onclick=()=>{ localStorage.setItem('falcon.theme', document.body.classList.contains('light')?'dark':'light'); applyView(); };
+$('btn-present').onclick=()=>{
+  const on=!document.body.classList.contains('present');
+  localStorage.setItem('falcon.present', on?'1':'0'); applyView();
+  if(on && document.documentElement.requestFullscreen) document.documentElement.requestFullscreen().catch(()=>{});
+  if(!on && document.fullscreenElement) document.exitFullscreen().catch(()=>{});
+};
+document.addEventListener('keydown',e=>{ if(e.key==='Escape' && document.body.classList.contains('present')){ localStorage.setItem('falcon.present','0'); applyView(); } });
+applyView();
+
+// ---- ekspor CSV ----
+function dlBlob(name, blob){ const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=name; document.body.appendChild(a); a.click(); setTimeout(()=>{ URL.revokeObjectURL(a.href); a.remove(); },500); }
+function stamp(){ return new Date().toISOString().replace(/[:T]/g,'-').slice(0,19); }
+function csvCell(v){ v=(v==null?'':String(v)); return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v; }
+function dlCsv(name, header, rows){
+  const body=[header.join(',')].concat(rows.map(r=>r.map(csvCell).join(','))).join('\n');
+  dlBlob(name+'-'+stamp()+'.csv', new Blob(['\ufeff'+body], {type:'text/csv;charset=utf-8'}));
+}
+$('exp-teid').onclick=()=>{
+  const rows=Object.values(teidMap).map(d=>[d.teid,d.imsi||'',d.qfi,d.state,d.ul_pkts,d.dl_pkts]);
+  dlCsv('falcon-sesi-teid', ['teid','imsi','qfi','state','ul_pkts','dl_pkts'], rows);
+};
+$('exp-hist').onclick=()=>{
+  fetch('/api/history').then(r=>r.json()).then(h=>{
+    dlCsv('falcon-riwayat', ['ts_unix','waktu','ul_pps','dl_pps','total_bytes','bps','drop_total','drop_rate_pct'],
+      h.map(p=>[p.ts, new Date(p.ts*1000).toISOString(), p.ul, p.dl, p.bytes, p.bps, p.drop, p.drop_rate]));
+  });
+};
+$('exp-ev').onclick=()=>{
+  fetch('/api/events?limit=500').then(r=>r.json()).then(ev=>{
+    dlCsv('falcon-event', ['ts_unix','event','severity','arah','teid','panjang','detail'],
+      ev.map(e=>[e.ts, e.event, e.severity, e.direction, e.teid, e.packet_len, e.detail||'']));
+  });
+};
+
+// ---- ekspor PNG (render DOM -> SVG foreignObject -> canvas; tanpa dependensi) ----
+$('exp-png').onclick=async ()=>{
+  try{
+    const el=document.querySelector('.wrap'); const r=el.getBoundingClientRect();
+    const w=Math.ceil(r.width), h=Math.ceil(el.scrollHeight);
+    let css=''; for(const ss of document.styleSheets){ try{ for(const rule of ss.cssRules) css+=rule.cssText+'\n'; }catch(e){} }
+    const clone=el.cloneNode(true);
+    clone.querySelectorAll('script').forEach(n=>n.remove());
+    const bg=getComputedStyle(document.body).backgroundColor;
+    const xml=new XMLSerializer().serializeToString(clone);
+    const svg=`<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}"><foreignObject width="100%" height="100%"><div xmlns="http://www.w3.org/1999/xhtml" class="${document.body.className}" style="background:${bg};width:${w}px"><style>${css}</style>${xml}</div></foreignObject></svg>`;
+    const img=new Image(); img.crossOrigin='anonymous';
+    await new Promise((ok,err)=>{ img.onload=ok; img.onerror=err; img.src='data:image/svg+xml;charset=utf-8,'+encodeURIComponent(svg); });
+    const c=document.createElement('canvas'); c.width=w*2; c.height=h*2; const g=c.getContext('2d'); g.scale(2,2); g.fillStyle=bg; g.fillRect(0,0,w,h); g.drawImage(img,0,0);
+    c.toBlob(b=>dlBlob('falcon-dashboard-'+stamp()+'.png', b), 'image/png');
+  }catch(e){ alert('Ekspor PNG gagal di browser ini ('+e.message+'). Gunakan tangkapan layar.'); }
+};
+
 // ---- init ----
 document.querySelector('.arr[data-a="ul_pkts"]').textContent='▼';
-bindCfg(); applyCfg(); connect();
+bindCfg(); applyCfg(); connect(); pollDemo(); setInterval(pollDemo, 15000);
 </script>
 </body>
 </html>
