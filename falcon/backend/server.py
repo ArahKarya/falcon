@@ -18,6 +18,11 @@ HTTP_PORT = int(os.environ.get("FALCON_HTTP_PORT", 8080))
 # FALCON_MODE   : "live" (board nyata, default) | "sim" (simulator; dashboard menampilkan banner SIMULASI)
 # FALCON_PUBLIC : "1" => deploy publik: endpoint kontrol generator (POST start/stop) ditolak 403
 MODE = os.environ.get("FALCON_MODE", "live").lower()
+# FALCON_DEMO_TRAFFIC="burst:30:90:120" => backend sendiri menembakkan traffic GTP-U sintetis ke board
+#   (aktif <on> detik @ <pps> paket/dtk, jeda <off> detik). Dashboard menampilkan badge "TRAFIK UJI SINTETIS".
+#   Kosong/off = mati. Target: FALCON_DEMO_TARGET (default 192.168.0.20:2152).
+DEMO_SPEC = os.environ.get("FALCON_DEMO_TRAFFIC", "").strip()
+DEMO_TARGET = os.environ.get("FALCON_DEMO_TARGET", "192.168.0.20:2152")
 PUBLIC = os.environ.get("FALCON_PUBLIC", "0") == "1"
 DASH_DIR = os.path.join(os.path.dirname(__file__), "..", "dashboard")
 GEN_CTL = os.path.join(os.path.dirname(__file__), "..", "..", "scripts", "falcon-gen")
@@ -56,7 +61,12 @@ async def broadcast(msg: dict):
         ws_clients.discard(ws)
 
 
-SEVERITY = {"CreateSession": "INFO", "ModifySession": "INFO", "DeleteSession": "WARN", "Error": "CRITICAL"}
+SEVERITY = {"CreateSession": "INFO", "ModifySession": "INFO", "DeleteSession": "WARN", "Error": "CRITICAL",
+            "G-PDU": "INFO", "EchoRequest": "INFO", "EchoResponse": "INFO", "EndMarker": "INFO",
+            "ErrorIndication": "WARN"}
+# Kode numerik dari gateware = tipe pesan GTP-U (3GPP TS 29.281 §6.1). Sumber: kolom `event` di datagram 0x03.
+GTPU_MSG_NAMES = {"1": "EchoRequest", "2": "EchoResponse", "26": "ErrorIndication",
+                  "254": "EndMarker", "255": "G-PDU"}
 DROP_WARN_PCT = 1.0
 DROP_CRIT_PCT = 5.0
 
@@ -122,6 +132,10 @@ def update_state(msg: dict):
         state["teid"][d["teid"]] = d
     elif t == "event":
         ev = {**msg["data"], "ts": msg.get("ts")}
+        raw_ev = str(ev.get("event"))
+        if raw_ev in GTPU_MSG_NAMES:
+            ev["event_code"] = raw_ev
+            ev["event"] = msg["data"]["event"] = GTPU_MSG_NAMES[raw_ev]
         ev["severity"] = SEVERITY.get(ev.get("event"), "INFO")
         msg["data"]["severity"] = ev["severity"]
         state["events"].appendleft(ev)
@@ -263,6 +277,86 @@ def _gen(action):
 def _deny_public():
     return web.json_response({"ok": False, "error": "generator control disabled on public deployment"}, status=403)
 
+demo = {"enabled": False, "active": False, "pps": 0, "on_s": 0, "off_s": 0, "next_flip": 0, "sent": 0}
+
+
+def _load_payloads():
+    """Payload GTP-U sintetis (sesuai silikon: tanpa header Eth/IP/UDP). 20 TEID tetap -> tabel sesi stabil.
+    Format: flags 0x30, type 0xFF (G-PDU), length, TEID, lalu isi acak berukuran bervariasi."""
+    import random, struct
+    rnd = random.Random(2152)
+    out = []
+    for i in range(20):
+        teid = 0x1000 + i * 0x111
+        for plen in (4, 12, 64, 180):
+            body = bytes(rnd.getrandbits(8) for _ in range(plen))
+            out.append(struct.pack(">BBHI", 0x30, 0xFF, plen, teid) + body)
+    return out
+
+
+async def demo_traffic_task():
+    import socket
+    try:
+        _, on_s, off_s, pps = DEMO_SPEC.split(":")
+        on_s, off_s, pps = int(on_s), int(off_s), int(pps)
+    except ValueError:
+        print(f"[FALCON-BE] FALCON_DEMO_TRAFFIC tidak valid: {DEMO_SPEC!r} (format burst:ON:OFF:PPS)")
+        return
+    host, port = DEMO_TARGET.rsplit(":", 1)
+    payloads = _load_payloads()
+    if not payloads:
+        print("[FALCON-BE] demo traffic: vektor payload tidak ditemukan, dimatikan")
+        return
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    demo.update({"enabled": True, "pps": pps, "on_s": on_s, "off_s": off_s})
+    loop = asyncio.get_event_loop()
+    i = 0
+    print(f"[FALCON-BE] demo traffic AKTIF: {on_s}s on @ ~{pps} pps, {off_s}s off -> {DEMO_TARGET}")
+    while True:
+        demo["active"] = True
+        end = loop.time() + on_s
+        demo["next_flip"] = int(time.time() + on_s)
+        gap = 1.0 / pps
+        nxt = loop.time()
+        while loop.time() < end:
+            try:
+                sock.sendto(payloads[i % len(payloads)], (host, int(port)))
+                demo["sent"] += 1
+            except OSError:
+                pass
+            i += 1
+            nxt += gap
+            delay = nxt - loop.time()
+            await asyncio.sleep(delay if delay > 0 else 0)
+        demo["active"] = False
+        demo["next_flip"] = int(time.time() + off_s)
+        await asyncio.sleep(off_s)
+
+
+async def api_demo(r):
+    return web.json_response(demo)
+
+
+async def api_measure(r):
+    """Penjelasan jujur tiap angka: sumber, satuan, dan keterbatasan gateware saat ini."""
+    return web.json_response({"version": VERSION, "mode": MODE, "items": [
+        {"k": "uplink_pps", "name": "Uplink / Downlink", "unit": "paket/dtk", "status": "valid",
+         "note": "Paket GTP-U yang diterima gateware per interval emit 1 detik (counter di-reset tiap emit 0x01)."},
+        {"k": "total_bytes", "name": "Throughput GTP-U (payload)", "unit": "byte / bps", "status": "valid",
+         "note": "Jumlah byte payload GTP-U (tanpa header Ethernet/IP/UDP, yang dibuang MAC). Kumulatif sejak bitstream di-load. bps = selisih per detik."},
+        {"k": "sessions", "name": "Sesi Aktif (TEID)", "unit": "TEID", "status": "valid",
+         "note": "TEID unik terakhir yang diparse; sesi dianggap mati setelah %d detik tanpa update." % TEID_TTL},
+        {"k": "drop", "name": "Drop", "unit": "paket", "status": "belum-ada",
+         "note": "Belum ada pendeteksi drop di gateware (pkt_drop terikat 0). Nilai 0 bukan bukti tidak ada paket hilang."},
+        {"k": "imsi", "name": "IMSI Aktif", "unit": "pengguna", "status": "belum-ada",
+         "note": "Ekstraksi IMSI / session table belum ada di gateware (Fase 2). Nilai 0 = belum diukur."},
+        {"k": "protocol", "name": "Distribusi Protokol", "unit": "%", "status": "sebagian",
+         "note": "Hanya GTP-U yang terisi; GTP-C, PFCP, BSSGP butuh classifier port lain yang belum menerima traffic."},
+        {"k": "events", "name": "Event", "unit": "kejadian", "status": "sebagian",
+         "note": "Kode event = tipe pesan GTP-U (255=G-PDU). Event sinyal (Create/Delete Session) butuh GTP-C yang belum diparse."},
+    ]})
+
+
 async def api_gen_status(r):
     if PUBLIC:
         return web.json_response({"running": False, "detail": "disabled", "disabled": True})
@@ -281,7 +375,7 @@ async def api_gen_stop(r):
     return web.json_response({"ok": ok, "detail": out, "running": False})
 
 async def api_version(r):  return web.json_response({"name": "FALCON", "version": VERSION, "udp_port": UDP_PORT, "http_port": HTTP_PORT,
-                              "mode": MODE, "public": PUBLIC})
+                              "mode": MODE, "public": PUBLIC, "demo": bool(DEMO_SPEC)})
 async def api_rawlog(r):
     lim = int(r.query.get("limit", 100))
     return web.json_response(list(state["rawlog"])[-lim:])
@@ -299,6 +393,8 @@ async def on_startup(app):
     await loop.create_datagram_endpoint(lambda: TelemetryProto(loop),
                                         local_addr=("0.0.0.0", UDP_PORT))
     asyncio.ensure_future(link_watcher())
+    if DEMO_SPEC and DEMO_SPEC.lower() != "off":
+        asyncio.ensure_future(demo_traffic_task())
     print(f"[FALCON-BE] UDP listener :{UDP_PORT}  ·  HTTP/WS :{HTTP_PORT}  ·  mode={MODE} public={PUBLIC}")
 
 
@@ -316,6 +412,8 @@ def make_app():
         web.get("/api/snapshot", api_snapshot),
         web.get("/api/history", api_history),
         web.get("/api/link", api_link),
+        web.get("/api/demo", api_demo),
+        web.get("/api/measure", api_measure),
         web.get("/api/events/counter", api_evtcounter),
         web.get("/api/version", api_version),
         web.get("/api/generator/status", api_gen_status),
