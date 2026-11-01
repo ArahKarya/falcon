@@ -45,7 +45,7 @@ entity gtpu_parser is
     udp_dport  : out std_logic_vector(15 downto 0);
     gtpu_mtype : out std_logic_vector(7 downto 0); -- GTP-U message type (mis. 0xFF G-PDU)
     teid       : out std_logic_vector(31 downto 0);
-    payload_len: out std_logic_vector(15 downto 0) -- UDP length (proxy ukuran paket)
+    payload_len: out std_logic_vector(15 downto 0) -- jumlah byte frame GTP-U yang masuk (valid saat done)
   );
 end entity gtpu_parser;
 
@@ -100,6 +100,9 @@ begin
         -- akhir frame -> emit done, reset counter
         if s_tlast = '1' then
           r_done <= '1';
+          -- ukuran frame nyata = jumlah byte yang masuk (cnt = indeks byte terakhir; +1).
+          -- Sebelumnya r_ulen tak pernah diisi => payload_len selalu 0 => total_bytes 0.
+          r_ulen <= std_logic_vector(resize(cnt, 16) + 1);
           cnt    <= (others=>'0');
         else
           cnt <= cnt + 1;

@@ -68,6 +68,7 @@ begin
     variable byteval  : std_logic_vector(7 downto 0);
     variable hi, lo   : character;
     variable cnt      : integer := 0;
+    variable hidx     : integer := 0;
 
     procedure chk(name : string; cond : boolean) is
     begin
@@ -101,15 +102,20 @@ begin
       rst <= '0'; wait until rising_edge(clk);
 
       -- stream frame: baca pasangan hex char dari sisa baris
+      hidx := 0;
       loop
         read(ln, hi, good); exit when not good;
         read(ln, lo, good); exit when not good;
         byteval := hc(hi) & hc(lo);
-        tdata  <= byteval;
-        tvalid <= '1';
-        -- tlast saat byte terakhir (peek: kalau sisa baris kosong setelah ini)
-        if ln'length = 0 then tlast <= '1'; else tlast <= '0'; end if;
-        wait until rising_edge(clk);
+        -- vektor = frame Ethernet penuh; MAC di silikon membuang Eth(14)+IP(20)+UDP(8)=42B,
+        -- parser hanya menerima payload GTP-U (byte0 = flags).
+        if hidx >= 42 then
+          tdata  <= byteval;
+          tvalid <= '1';
+          if ln'length = 0 then tlast <= '1'; else tlast <= '0'; end if;
+          wait until rising_edge(clk);
+        end if;
+        hidx := hidx + 1;
       end loop;
       tvalid <= '0'; tlast <= '0';
       wait until rising_edge(clk);

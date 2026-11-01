@@ -93,7 +93,9 @@ begin
     variable good   : boolean;
     variable frame  : byte_arr(0 to 255);
     variable nbytes : integer := 0;
+    variable hidx   : integer := 0;
     variable ul_seen: unsigned(31 downto 0);
+    variable tb_seen: unsigned(63 downto 0);
     variable dg   : std_logic_vector(543 downto 0);
 
     procedure send_frame is
@@ -113,7 +115,7 @@ begin
       for k in 1 to n loop send_frame; end loop;
     end procedure;
 
-    procedure emit_and_check(expected : integer; tag : string) is
+    procedure emit_and_check(expected : integer; tag : string; exp_bytes : integer) is
       variable before : integer;
     begin
       before := dg_count;
@@ -127,6 +129,12 @@ begin
       wait for 1 ns;
       assert dg_count > before report tag & ": datagram 0x01 tidak muncul" severity failure;
       -- header 4B, lalu ts(4) imsi(4) ul(4): ul_pps = byte 12..15
+      tb_seen := unsigned(last_dg(543 - 24*8 downto 543 - 24*8 - 63));  -- ts4 imsi4 ul4 dl4 teid4 | bytes8
+      report tag & ": total_bytes=" & integer'image(to_integer(tb_seen(30 downto 0)));
+      if to_integer(tb_seen(30 downto 0)) /= exp_bytes then
+        fails <= fails + 1;
+        report "FAIL " & tag & " total_bytes=" & integer'image(to_integer(tb_seen(30 downto 0))) & " expected " & integer'image(exp_bytes) severity error;
+      end if;
       ul_seen := unsigned(last_dg(543 - 12*8 downto 543 - 12*8 - 31));
       report tag & ": ul_pps=" & integer'image(to_integer(ul_seen)) &
              " (expected " & integer'image(expected) & ")";
@@ -146,18 +154,21 @@ begin
     loop
       read(ln, hi, good); exit when not good;
       read(ln, lo, good); exit when not good;
-      frame(nbytes) := hc(hi) & hc(lo);
-      nbytes := nbytes + 1;
+      if hidx >= 42 then            -- buang Eth+IP+UDP (42B) seperti MAC di silikon
+        frame(nbytes) := hc(hi) & hc(lo);
+        nbytes := nbytes + 1;
+      end if;
+      hidx := hidx + 1;
     end loop;
     file_close(fh);
 
     rst <= '1'; wait until rising_edge(clk); wait until rising_edge(clk);
     rst <= '0'; for i in 0 to 5 loop wait until rising_edge(clk); end loop;
 
-    send_n(5);  emit_and_check(5,  "interval1");
-    send_n(3);  emit_and_check(3,  "interval2 (bukan kumulatif 8)");
-    emit_and_check(0, "interval3 idle");
-    send_n(7);  emit_and_check(7,  "interval4");
+    send_n(5);  emit_and_check(5,  "interval1", 5*nbytes);
+    send_n(3);  emit_and_check(3,  "interval2 (bukan kumulatif 8)", 8*nbytes);
+    emit_and_check(0, "interval3 idle", 8*nbytes);
+    send_n(7);  emit_and_check(7,  "interval4", 15*nbytes);
 
     if fails = 0 then
       report "=== RATE_CLEAR: ALL PASS ===" severity note;
