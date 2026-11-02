@@ -18,6 +18,7 @@ R="$VE/rtl"; A="$VE/lib/axis/rtl"; EX="$VE/example/ATLYS/fpga/rtl"
 SRC=(
   "$ETH/genesys_fpga.v"
   "$ETH/fpga_core.v"
+  "$ETH/led_status.v"
   "$EX/sync_reset.v"
   "$ETH/v5io/gmii_phy_if.v"
   "$ETH/v5io/ssio_sdr_in.v"
