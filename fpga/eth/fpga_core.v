@@ -49,6 +49,14 @@ module fpga_core #
     output wire [7:0] led,
 
     /*
+     * LCD 16x2 (write-only; R/W terikat 0)
+     */
+    output wire       lcd_rs,
+    output wire       lcd_rw,
+    output wire       lcd_e,
+    output wire [7:0] lcd_db,
+
+    /*
      * Ethernet: 1000BASE-T GMII
      */
     input  wire       phy_rx_clk,
@@ -332,6 +340,15 @@ led_status #(.LED_SEC(LED_SEC), .LED_STRETCH(LED_STRETCH)) u_led (
     .clk(clk), .rst(rst),
     .gtpu_strobe(gtpu_strobe), .tx_strobe(tx_strobe), .phy_rx_dv(phy_rx_dv),
     .led(led)
+);
+
+// LCD status 16x2 (lihat lcd_status.v): UL pps, Rate Mbps, Tot byte, Pkt, Uptime.
+// byte_strobe = tiap byte payload GTP-U yang BENAR-BENAR diterima parser (valid & ready).
+wire gtpu_byte_strobe = rx_udp_payload_tvalid & dpi_match & w_rx_tready;
+lcd_status u_lcd (
+    .clk(clk), .rst(rst),
+    .pkt_strobe(gtpu_strobe), .byte_strobe(gtpu_byte_strobe),
+    .lcd_rs(lcd_rs), .lcd_rw(lcd_rw), .lcd_e(lcd_e), .lcd_db(lcd_db)
 );
 
 // ---------------------------------------------------------------------------
