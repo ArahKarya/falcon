@@ -61,3 +61,20 @@ NET "led[4]" LOC = "AH10" | IOSTANDARD = LVCMOS33;
 NET "led[5]" LOC = "AG11" | IOSTANDARD = LVCMOS33;
 NET "led[6]" LOC = "AF11" | IOSTANDARD = LVCMOS33;
 NET "led[7]" LOC = "AE11" | IOSTANDARD = LVCMOS33;
+
+#-----------------------------------------------------------------------------
+# LCD 16x2 (ST7066U) - pin: Genesys Reference Manual hlm.18. WRITE-ONLY:
+# R/W diikat 0 di RTL (tak ada jalur LCD(5V)->FPGA). IOSTANDARD belum
+# terkonfirmasi dari master UCF resmi -> LVCMOS25 konservatif, SLEW SLOW, DRIVE 4mA.
+#-----------------------------------------------------------------------------
+NET "lcd_rs"     LOC = "V7"  | IOSTANDARD = LVCMOS25 | SLEW = SLOW | DRIVE = 4;
+NET "lcd_rw"     LOC = "W6"  | IOSTANDARD = LVCMOS25 | SLEW = SLOW | DRIVE = 4;
+NET "lcd_e"      LOC = "AA5" | IOSTANDARD = LVCMOS25 | SLEW = SLOW | DRIVE = 4;
+NET "lcd_db[0]"  LOC = "Y8"  | IOSTANDARD = LVCMOS25 | SLEW = SLOW | DRIVE = 4;
+NET "lcd_db[1]"  LOC = "AB7" | IOSTANDARD = LVCMOS25 | SLEW = SLOW | DRIVE = 4;
+NET "lcd_db[2]"  LOC = "AB5" | IOSTANDARD = LVCMOS25 | SLEW = SLOW | DRIVE = 4;
+NET "lcd_db[3]"  LOC = "AC4" | IOSTANDARD = LVCMOS25 | SLEW = SLOW | DRIVE = 4;
+NET "lcd_db[4]"  LOC = "AB6" | IOSTANDARD = LVCMOS25 | SLEW = SLOW | DRIVE = 4;
+NET "lcd_db[5]"  LOC = "AC5" | IOSTANDARD = LVCMOS25 | SLEW = SLOW | DRIVE = 4;
+NET "lcd_db[6]"  LOC = "AC7" | IOSTANDARD = LVCMOS25 | SLEW = SLOW | DRIVE = 4;
+NET "lcd_db[7]"  LOC = "AD7" | IOSTANDARD = LVCMOS25 | SLEW = SLOW | DRIVE = 4;

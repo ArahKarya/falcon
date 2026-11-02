@@ -21,6 +21,10 @@ module genesys_fpga (
     input  wire       reset_n,      // RESET pushbutton (active-low wiring di UCF)
 
     output wire [7:0] led,          // indikator status
+    output wire       lcd_rs,       // LCD 16x2 (write-only)
+    output wire       lcd_rw,
+    output wire       lcd_e,
+    output wire [7:0] lcd_db,
 
     /* Ethernet: GMII ke Marvell 88E1111 */
     input  wire       phy_rx_clk,
@@ -102,6 +106,7 @@ core_inst (
     .rst(rst_int),
 
     .led(led),
+    .lcd_rs(lcd_rs), .lcd_rw(lcd_rw), .lcd_e(lcd_e), .lcd_db(lcd_db),
 
     .phy_rx_clk(phy_rx_clk),
     .phy_rxd(phy_rxd),
