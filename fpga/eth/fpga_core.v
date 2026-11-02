@@ -31,7 +31,9 @@ THE SOFTWARE.
  */
 module fpga_core #
 (
-    parameter TARGET = "XILINX"
+    parameter TARGET = "XILINX",
+    parameter LED_SEC     = 125_000_000,   // 1 detik @125 MHz (kecilkan di simulasi)
+    parameter LED_STRETCH = 12_500_000     // 100 ms
 )
 (
     /*
@@ -321,23 +323,16 @@ assign w_tx_tready           = tx_udp_payload_tready & hdr_done;
 assign tx_udp_payload_tlast  = w_tx_tlast;
 assign tx_udp_payload_tuser  = 1'b0;
 
-// Place first payload byte onto LEDs
-reg valid_last = 0;
-reg [7:0] led_reg = 0;
-
-always @(posedge clk) begin
-    if (rst) begin
-        led_reg <= 0;
-    end else begin
-        valid_last <= tx_udp_payload_tvalid;
-        if (tx_udp_payload_tvalid & ~valid_last) begin
-            led_reg <= tx_udp_payload_tdata;
-        end
-    end
-end
-
-//assign led = sw;
-assign led = led_reg;
+// LED status: logika di led_status.v (diuji terpisah, tb_led_status.v).
+// LD0 heartbeat, LD1 GTP-U masuk, LD2 telemetri keluar, LD3 frame Ethernet masuk, LD4..7 bar beban.
+// Tidak ada klaim "link up": desain ini tidak membaca MDIO PHY.
+wire gtpu_strobe = rx_udp_payload_tvalid & dpi_match & rx_udp_payload_tlast;   // 1 per paket GTP-U
+wire tx_strobe   = tx_udp_hdr_valid & tx_udp_hdr_ready;                         // 1 per datagram telemetri
+led_status #(.LED_SEC(LED_SEC), .LED_STRETCH(LED_STRETCH)) u_led (
+    .clk(clk), .rst(rst),
+    .gtpu_strobe(gtpu_strobe), .tx_strobe(tx_strobe), .phy_rx_dv(phy_rx_dv),
+    .led(led)
+);
 
 // ---------------------------------------------------------------------------
 // PHY reset pulse: hold phy_reset_n LOW >=10ms after clk stabil, baru release.
