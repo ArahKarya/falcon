@@ -13,6 +13,8 @@ from aiohttp import web
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from shared import contract as C
 import auth
+import stack
+import gtpu_pcap
 
 UDP_PORT = int(os.environ.get("FALCON_UDP_PORT", 50000))
 HTTP_PORT = int(os.environ.get("FALCON_HTTP_PORT", 8080))
@@ -278,7 +280,8 @@ def _gen(action):
 def _deny_public():
     return web.json_response({"ok": False, "error": "generator control disabled on public deployment"}, status=403)
 
-demo = {"enabled": False, "active": False, "pps": 0, "on_s": 0, "off_s": 0, "next_flip": 0, "sent": 0}
+demo = {"enabled": False, "active": False, "pps": 0, "on_s": 0, "off_s": 0, "next_flip": 0, "sent": 0,
+        "source": "synthetic"}
 
 
 def _load_payloads():
@@ -299,16 +302,27 @@ DEMO_LIMITS = {"pps": (1, 5000), "on_s": (1, 3600), "off_s": (0, 3600)}
 _demo_task = [None]
 
 
-async def demo_traffic_task(on_s: int, off_s: int, pps: int):
+async def demo_traffic_task(on_s: int, off_s: int, pps: int, source: str = "synthetic"):
     """Kirim GTP-U sintetis ke board: aktif on_s detik @ pps, jeda off_s detik (0 = terus-menerus)."""
     import socket
     host, port = DEMO_TARGET.rsplit(":", 1)
-    payloads = _load_payloads()
-    if not payloads:
-        print("[FALCON-BE] demo traffic: vektor payload tidak ditemukan, dimatikan")
-        return
+    if source == "stack-lte":
+        try:
+            payloads = gtpu_pcap.gtpu_payloads(stack.PCAP)
+        except (OSError, ValueError) as e:
+            print(f"[FALCON-BE] replay stack: pcap tak terbaca ({e})")
+            return
+        if not payloads:
+            print("[FALCON-BE] replay stack: tidak ada GTP-U di pcap, dimatikan")
+            return
+    else:
+        payloads = _load_payloads()
+        if not payloads:
+            print("[FALCON-BE] demo traffic: vektor payload tidak ditemukan, dimatikan")
+            return
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    demo.update({"enabled": True, "pps": pps, "on_s": on_s, "off_s": off_s})
+    demo.update({"enabled": True, "pps": pps, "on_s": on_s, "off_s": off_s, "source": source,
+                 "pool": len(payloads)})
     loop = asyncio.get_event_loop()
     i = 0
     print(f"[FALCON-BE] demo traffic AKTIF: {on_s}s on @ ~{pps} pps, {off_s}s off -> {DEMO_TARGET}")
@@ -339,9 +353,9 @@ async def demo_traffic_task(on_s: int, off_s: int, pps: int):
         sock.close()
 
 
-def demo_start(on_s: int, off_s: int, pps: int):
+def demo_start(on_s: int, off_s: int, pps: int, source: str = "synthetic"):
     demo_stop()
-    _demo_task[0] = asyncio.ensure_future(demo_traffic_task(on_s, off_s, pps))
+    _demo_task[0] = asyncio.ensure_future(demo_traffic_task(on_s, off_s, pps, source))
 
 
 def demo_stop():
@@ -349,7 +363,7 @@ def demo_stop():
     if t and not t.done():
         t.cancel()
     _demo_task[0] = None
-    demo.update({"enabled": False, "active": False})
+    demo.update({"enabled": False, "active": False, "source": "synthetic", "pool": 0})
 
 
 async def api_demo(r):
@@ -504,17 +518,30 @@ async def api_setup_fpga(r):
 
 
 async def api_setup_traffic(r):
+    st = await stack.status()
+    sstat = {"running": "running", "partial": "partial", "stopped": "stopped", "not-installed": "not-installed",
+             "error": "error"}.get(st.get("state"), "stopped")
+    cap = st.get("capture") or (stack_capture_info() if stack.installed() else None)
     return web.json_response({
         "sources": [
             {"id": "synthetic", "name": "Sintetis (backend)", "status": "ready",
              "desc": "Backend mengirim paket GTP-U uji ke board. Tanpa jaringan nyata."},
-            {"id": "5g-nsa", "name": "Stack 5G NSA (Open5GS + srsRAN + UERANSIM)", "status": STACK["status"],
-             "desc": "Trafik GTP-U dari simulasi jaringan 5G NSA, diteruskan ke board."},
+            {"id": "stack-lte", "name": "Stack LTE (Open5GS + srsRAN)", "status": sstat,
+             "desc": "UE simulasi attach ke core 4G; GTP-U S1-U asli ditangkap lalu diputar ulang ke board."},
             {"id": "live", "name": "Live (antarmuka fisik)", "status": "manual",
              "desc": "Kabel mirror/TAP dari jaringan nyata ke port Ethernet board. Matikan sumber lain."},
         ],
-        "demo": demo, "target": DEMO_TARGET, "limits": DEMO_LIMITS, "stack": STACK,
+        "demo": demo, "target": DEMO_TARGET, "limits": DEMO_LIMITS,
+        "stack": dict(st, job=stack.job, capture=cap, installed=stack.installed()),
     })
+
+
+def stack_capture_info():
+    try:
+        st = os.stat(stack.PCAP)
+        return {"bytes": st.st_size, "age_s": int(time.time() - st.st_mtime)}
+    except OSError:
+        return None
 
 
 async def api_traffic_start(r):
@@ -527,7 +554,12 @@ async def api_traffic_start(r):
         lo, hi = DEMO_LIMITS[k]
         if not lo <= v <= hi:
             return web.json_response({"ok": False, "error": f"{k} harus {lo}..{hi}"}, status=400)
-    demo_start(on_s, off_s, pps)
+    source = d.get("source", "synthetic")
+    if source not in ("synthetic", "stack-lte"):
+        return web.json_response({"ok": False, "error": "sumber tidak dikenal"}, status=400)
+    if source == "stack-lte" and not os.path.exists(stack.PCAP or "/nonexistent"):
+        return web.json_response({"ok": False, "error": "belum ada tangkapan; jalankan 'Siapkan stack' dulu"}, status=409)
+    demo_start(on_s, off_s, pps, source)
     return web.json_response({"ok": True, "demo": demo})
 
 
@@ -536,8 +568,29 @@ async def api_traffic_stop(r):
     return web.json_response({"ok": True, "demo": demo})
 
 
-# status stack 5G NSA (diisi oleh modul stack nanti; sementara belum terpasang)
-STACK = {"status": "not-installed", "containers": [], "detail": "Belum dijalankan dari halaman ini."}
+async def api_stack_prepare(r):
+    if not stack.installed():
+        return web.json_response({"ok": False, "error": "stack tidak terpasang di host ini"}, status=409)
+    if stack.busy():
+        return web.json_response({"ok": False, "error": "operasi stack sedang berjalan"}, status=409)
+    try:
+        d = await r.json()
+    except ValueError:
+        d = {}
+    keep = bool(d.get("keep_running", False))
+    secs = max(5, min(60, int(d.get("secs", 12))))
+    pps = max(10, min(300, int(d.get("pps", 120))))
+    asyncio.ensure_future(stack.prepare(keep, secs, pps))
+    return web.json_response({"ok": True, "job": stack.job})
+
+
+async def api_stack_stop(r):
+    if not stack.installed():
+        return web.json_response({"ok": False, "error": "stack tidak terpasang di host ini"}, status=409)
+    if stack.busy():
+        return web.json_response({"ok": False, "error": "operasi stack sedang berjalan"}, status=409)
+    asyncio.ensure_future(stack.shutdown())
+    return web.json_response({"ok": True, "job": stack.job})
 
 
 async def index(r):
@@ -575,6 +628,8 @@ def make_app():
         web.get("/api/setup/traffic", api_setup_traffic),
         web.post("/api/traffic/start", api_traffic_start),
         web.post("/api/traffic/stop", api_traffic_stop),
+        web.post("/api/stack/prepare", api_stack_prepare),
+        web.post("/api/stack/stop", api_stack_stop),
         web.get("/ws", ws_handler),
         web.get("/api/health", api_health),
         web.get("/api/stats/global", api_global),

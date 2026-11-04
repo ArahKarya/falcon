@@ -20,7 +20,7 @@
 <pre class="diagram">  [ Sumber trafik ]                              [ Papan FPGA ]                [ Host ]
   ───────────────                              ──────────────                ────────
   Sintetis  : backend kirim GTP-U uji ───┐
-  Stack 5G  : Open5GS+srsRAN+UERANSIM ───┼──► Ethernet  192.168.0.20 :2152 ──► telemetri UDP :50000 ──► dashboard
+  Stack LTE : Open5GS+srsRAN (tangkap+putar) ┼──► Ethernet  192.168.0.20 :2152 ──► telemetri UDP :50000 ──► dashboard
   Live      : mirror/TAP jaringan nyata ─┘      (hitung & parse di silikon)</pre>
     <div class="note info" id="whereto">—</div>
   </div>
@@ -31,8 +31,9 @@
   </div>
 
   <div class="panel" id="synthpanel">
-    <h3>Trafik sintetis <span class="tag" id="synstate">—</span></h3>
+    <h3>Kirim ke board <span class="tag" id="synstate">—</span></h3>
     <div class="row">
+      <div><label>Sumber</label><select id="src"><option value="synthetic">Sintetis (backend)</option><option value="stack-lte">Replay stack LTE</option></select></div>
       <div><label>Laju (paket/dtk)</label><input type="number" id="pps" min="1" max="5000" value="120"></div>
       <div><label>Aktif (detik)</label><input type="number" id="on" min="1" max="3600" value="30"></div>
       <div><label>Jeda (detik, 0 = terus-menerus)</label><input type="number" id="off" min="0" max="3600" value="90"></div>
@@ -45,11 +46,29 @@
     <div class="kv" style="margin-top:12px;font-family:'JetBrains Mono',monospace;font-size:11.5px;color:#b6c6da" id="demokv">—</div>
   </div>
 
+  <div class="panel" id="stackpanel">
+    <h3>Stack LTE simulasi <span class="tag" id="stackstate">—</span></h3>
+    <p class="lead" style="margin:0 0 10px">Core 4G <b>Open5GS</b> + eNB <b>srsRAN</b> + UE simulasi (radio virtual ZMQ). UE attach, memakai IP dari core, lalu
+      GTP-U S1-U <b>asli</b> ditangkap sekali dan <b>diputar ulang</b> ke board. Papan tidak berada di jalur S1-U; ia menerima salinan hasil tangkapan.</p>
+    <div class="row">
+      <div><label>Durasi tangkap (detik)</label><input type="number" id="capsec" min="5" max="60" value="12"></div>
+      <div><label>Laju UE (paket/dtk)</label><input type="number" id="cappps" min="10" max="300" value="120"></div>
+      <div><label>Setelah menangkap</label><select id="keep"><option value="0">Matikan stack (hemat RAM)</option><option value="1">Biarkan menyala</option></select></div>
+    </div>
+    <div id="stackctl">
+      <button class="btn" id="bprep">Siapkan stack &amp; tangkap</button>
+      <button class="btn stop" id="bstackstop">Matikan stack</button>
+    </div>
+    <div class="msg" id="stackmsg"></div>
+    <div class="kv" style="margin-top:12px;font-family:'JetBrains Mono',monospace;font-size:11.5px;color:#b6c6da" id="stackkv">—</div>
+    <div class="note">Stack memakai sekitar 1,4&nbsp;GB RAM dan CPU lab dipakai bersama. Pilihan bawaan mematikan stack setelah menangkap; replay ke board tidak memerlukan stack menyala.</div>
+  </div>
+
   <div class="panel">
     <h3>Menyambungkan ke antarmuka jaringan Anda (Live)</h3>
     <table>
       <tr><th style="width:26%">Langkah</th><th>Keterangan</th></tr>
-      <tr><td>1. Hentikan sumber lain</td><td>Hentikan trafik sintetis dan stack 5G agar angka di dashboard hanya berasal dari jaringan Anda.</td></tr>
+      <tr><td>1. Hentikan sumber lain</td><td>Hentikan pengiriman (sintetis atau replay stack LTE) agar angka di dashboard hanya berasal dari jaringan Anda.</td></tr>
       <tr><td>2. Buat salinan trafik</td><td>Pasang <b>port mirror/SPAN</b> pada switch atau <b>network TAP</b> pada link S1-U / N3 yang membawa GTP-U (UDP 2152).</td></tr>
       <tr><td>3. Colok ke papan</td><td>Hubungkan port mirror ke port Ethernet papan FPGA (1 Gbps). Papan <b>hanya menerima</b> dan tidak meneruskan paket, jadi tidak mengganggu link produksi.</td></tr>
       <tr><td>4. Perhatikan alamat</td><td>Papan menjawab ARP di <code>192.168.0.20</code>. Paket yang tujuannya bukan alamat itu tetap dihitung bila sampai ke MAC-nya; pastikan mirror mengirim frame ke port yang tepat.</td></tr>
@@ -61,26 +80,46 @@
 <script src="/static/nav.js"></script>
 <script>
 const esc = s => String(s==null?'—':s).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
-const SRC = {ready:['ok','Siap'], manual:['warn','Manual'], 'not-installed':['off','Belum terpasang'], running:['ok','Berjalan'], stopped:['off','Berhenti'], error:['bad','Galat']};
+const SRC = {ready:['ok','Siap'], manual:['warn','Manual'], 'not-installed':['off','Belum terpasang'], running:['ok','Berjalan'], partial:['warn','Sebagian'], stopped:['off','Berhenti'], error:['bad','Galat']};
+const PHASE = {idle:'Siap', up:'Menyalakan stack…', capture:'Menangkap GTP-U…', down:'Mematikan stack…', done:'Selesai', error:'Galat'};
 let isOp = false;
 document.addEventListener('falcon-ready', ()=>{ isOp = (window.FALCON_ROLE==='operator'); applyRole(); load(); });
 function applyRole(){
   document.getElementById('ctl').style.display = isOp ? '' : 'none';
+  document.getElementById('stackctl').style.display = isOp ? '' : 'none';
   if (!isOp) { const m=document.getElementById('msg'); m.className='msg'; m.textContent='Akun Anda berperan viewer: hanya dapat melihat, tidak dapat mengubah trafik.'; }
 }
 async function load(){
   const j = await (await fetch('/api/setup/traffic')).json();
-  const d = j.demo;
-  document.getElementById('whereto').innerHTML = 'Trafik sintetis dikirim backend ke <code>'+esc(j.target)+'</code> (GTP-U UDP 2152 pada papan).';
+  const d = j.demo, st = j.stack || {};
+  const lbl = d.source==='stack-lte' ? 'replay stack LTE' : 'sintetis';
+  document.getElementById('whereto').innerHTML = 'Paket GTP-U dikirim backend ke <code>'+esc(j.target)+'</code> (UDP 2152 pada papan). Sumber saat ini: <b>'+lbl+'</b>.';
   document.getElementById('sources').innerHTML = j.sources.map(s=>{
     const [c,l] = SRC[s.status]||['off',s.status];
-    return '<div class="card"><div class="t">'+esc(s.name)+'<span class="tag '+c+'">'+l+'</span></div><div class="d">'+esc(s.desc)+'</div></div>';
+    const cur = (d.enabled && s.id===d.source) ? ' <span class="tag ok">dipakai</span>' : '';
+    return '<div class="card"><div class="t">'+esc(s.name)+'<span class="tag '+c+'">'+l+'</span>'+cur+'</div><div class="d">'+esc(s.desc)+'</div></div>';
   }).join('');
-  const st = document.getElementById('synstate');
-  st.className = 'tag '+(d.enabled?'ok':'off'); st.textContent = d.enabled ? (d.active?'mengirim':'jeda') : 'mati';
+  const sst = document.getElementById('synstate');
+  sst.className = 'tag '+(d.enabled?'ok':'off'); sst.textContent = d.enabled ? (d.active?'mengirim':'jeda') : 'mati';
   const mt = document.getElementById('modetag');
-  mt.className = 'tag '+(d.enabled?'warn':'ok'); mt.textContent = d.enabled ? 'sintetis aktif' : 'tidak ada sumber sintetis';
-  document.getElementById('demokv').innerHTML = '<b>Terkirim</b> '+d.sent.toLocaleString('id-ID')+' paket'+(d.enabled?' · profil '+d.on_s+' dtk aktif / '+d.off_s+' dtk jeda @ '+d.pps+' pps':'');
+  mt.className = 'tag '+(d.enabled?'warn':'ok'); mt.textContent = d.enabled ? (lbl+' aktif') : 'tidak ada sumber buatan';
+  document.getElementById('demokv').innerHTML = '<b>Terkirim</b> '+d.sent.toLocaleString('id-ID')+' paket'+(d.enabled?' · sumber '+lbl+' · '+d.on_s+' dtk aktif / '+d.off_s+' dtk jeda @ '+d.pps+' pps'+(d.pool?' · '+d.pool+' paket unik':''):'');
+  // stack
+  const [c,l] = SRC[st.state]||['off',st.state||'—'];
+  const ss = document.getElementById('stackstate'); ss.className='tag '+c; ss.textContent=l;
+  const job = st.job||{}, cap = st.capture;
+  let kv = '<b>Fase</b> '+(PHASE[job.phase]||job.phase||'—')+(job.msg?' · '+esc(job.msg):'');
+  if (st.ue_ip) kv += '<br><b>UE</b> attach · IP '+esc(st.ue_ip);
+  if (st.containers) kv += '<br><b>Kontainer</b> '+st.containers.map(x=>esc(x.name.replace('falcon_',''))+(x.up?' ✓':' ✗')).join(' · ');
+  kv += '<br><b>Tangkapan</b> '+(cap?(cap.packets!=null?cap.packets+' paket · ':'')+Math.round(cap.bytes/1024)+' KB · '+(cap.age_s<90?cap.age_s+' dtk':Math.round(cap.age_s/60)+' mnt')+' lalu':'belum ada');
+  if (st.state==='not-installed') kv = esc(st.detail||'Stack tidak terpasang di host ini.');
+  document.getElementById('stackkv').innerHTML = kv;
+  const busy = ['up','capture','down'].includes(job.phase);
+  document.getElementById('bprep').disabled = busy || st.state==='not-installed';
+  document.getElementById('bstackstop').disabled = busy || st.state==='not-installed' || st.state==='stopped';
+  const sm = document.getElementById('stackmsg');
+  if (job.phase==='error') { sm.className='msg err'; sm.textContent=job.msg; } else if (!busy) { sm.className='msg'; sm.textContent=''; }
+  const o = document.querySelector('#src option[value="stack-lte"]'); if (o) o.disabled = !cap;
 }
 async function post(url, body){
   const m = document.getElementById('msg'); m.className='msg'; m.textContent='…';
@@ -89,7 +128,14 @@ async function post(url, body){
   m.className = 'msg '+(j.ok?'ok':'err'); m.textContent = j.ok ? 'Berhasil.' : (j.error||'Gagal');
   load();
 }
-document.getElementById('bstart').onclick = ()=> post('/api/traffic/start', {pps:+pps.value, on_s:+on.value, off_s:+off.value});
+document.getElementById('bstart').onclick = ()=> post('/api/traffic/start', {source:src.value, pps:+pps.value, on_s:+on.value, off_s:+off.value});
+async function stackPost(url, body){
+  const m=document.getElementById('stackmsg'); m.className='msg'; m.textContent='…';
+  const r=await fetch(url,{method:'POST',headers:{'content-type':'application/json'},body:body?JSON.stringify(body):undefined});
+  const j=await r.json(); m.className='msg '+(j.ok?'ok':'err'); m.textContent=j.ok?'Diproses di latar belakang; status diperbarui otomatis.':(j.error||'Gagal'); load();
+}
+document.getElementById('bprep').onclick = ()=> stackPost('/api/stack/prepare', {keep_running: keep.value==='1', secs:+capsec.value, pps:+cappps.value});
+document.getElementById('bstackstop').onclick = ()=> stackPost('/api/stack/stop');
 document.getElementById('bstop').onclick  = ()=> post('/api/traffic/stop');
 setInterval(()=>{ if (window.FALCON_ROLE) load(); }, 3000);
 </script>

@@ -267,7 +267,7 @@
     <span id="modetext"><b>Telemetri silikon nyata.</b> Data di-parse langsung oleh gateware FALCON (XC5VLX50T) dari paket GTP-U → emit ke backend via UDP :50000. Bukan simulator.</span>
   </div>
 
-  <div class="demobar" id="demobar"><span class="tag">TRAFIK UJI SINTETIS</span>
+  <div class="demobar" id="demobar"><span class="tag" id="demotag">TRAFIK UJI SINTETIS</span>
     <span id="demotext">Paket GTP-U uji dikirim otomatis ke board agar tampilan tetap hidup. Bukan traffic jaringan nyata.</span>
     <span class="ph" id="demoph">—</span></div>
 
@@ -795,6 +795,11 @@ let demoState = null;
 function renderDemo(){
   const bar=$('demobar'); if(!demoState || !demoState.enabled){ bar.classList.remove('show'); return; }
   bar.classList.add('show');
+  const stk = demoState.source==='stack-lte';
+  $('demotag').textContent = stk ? 'REPLAY STACK LTE' : 'TRAFIK UJI SINTETIS';
+  $('demotext').textContent = stk
+    ? 'GTP-U asli hasil tangkapan stack LTE simulasi (Open5GS + srsRAN) diputar ulang ke board. Isi paket dari jaringan simulasi, bukan jaringan produksi.'
+    : 'Paket GTP-U uji dikirim otomatis ke board agar tampilan tetap hidup. Bukan traffic jaringan nyata.';
   const ph=$('demoph'); const left=Math.max(0, (demoState.next_flip||0) - Math.floor(Date.now()/1000));
   if(demoState.active){ ph.className='ph live'; ph.textContent='● mengirim ~'+demoState.pps+' pps · '+left+' dtk lagi'; }
   else { ph.className='ph'; ph.textContent='○ jeda · lanjut '+left+' dtk lagi'; }
