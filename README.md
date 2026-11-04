@@ -26,7 +26,7 @@ FALCON is a **telecom security and observability research platform** that moves 
 
 The whole host stack is built around a **single byte contract** (`falcon/shared/contract.py`) used by both the gateware and the backend. A simulator that speaks the same contract lets the host side be developed and tested without the board.
 
-**Status (November 2026):** the pipeline runs on real silicon. The board is programmed, the 1 Gbps link is up, and every metric on the dashboard is counted by the gateware, not by the host. The traffic fed to the board in the public demo is **synthetic** (see [Traffic modes](#traffic-modes-synthetic-vs-live)).
+**Status (November 2026):** the pipeline runs on real silicon. The board is programmed, the 1 Gbps link is up, and every metric on the dashboard is counted by the gateware, not by the host. The traffic fed to the board in the public demo is **synthetic or a replay of a simulated LTE network**, never a production network (see [Traffic modes](#traffic-modes)). Control pages are restricted to verified operators (see [Operator console](#operator-console)).
 
 ---
 
@@ -50,7 +50,7 @@ GTP-U (GPRS Tunnelling Protocol, User plane) carries all user data in 4G/5G core
 
 ## Dashboard
 
-Live at **[falcon.arahkarya.com](https://falcon.arahkarya.com)** (public, read-only: generator control endpoints return 403).
+Live at **[falcon.arahkarya.com](https://falcon.arahkarya.com)** (public and read-only: anything that changes state requires an operator login).
 
 | Live telemetry | Measurement documentation |
 |---|---|
@@ -61,6 +61,36 @@ Live at **[falcon.arahkarya.com](https://falcon.arahkarya.com)** (public, read-o
 | ![Light theme](docs/screenshots/07-light-theme.png) | ![Settings](docs/screenshots/02-settings.png) |
 
 Features: KPI cards with sparklines, packet-rate and throughput charts (with drop rate), per-TEID session table with detail modal, Top-5 sessions, protocol distribution, real-time event feed with severity, FPGA link banner (connected / disconnected), CSV and PNG export, dark/light theme, **presentation mode**, and a **Measurement** modal that documents how each number is produced and whether it is validated.
+
+---
+
+## Operator console
+
+The device is not meant to be driven by anyone who can reach the web page. The console is split into four pages:
+
+| Page | Path | Access | Purpose |
+|---|---|---|---|
+| Login | `/login` | public | Verifies the operator before any control is shown |
+| Dashboard | `/` | public, read-only | What the board measures |
+| Setup FPGA | `/setup/fpga` | operator login | Which board is active, link state, what is reusable across boards |
+| Setup Traffic | `/setup/traffic` | operator login | Where the traffic comes from and how to connect your own |
+
+| Login | Setup FPGA |
+|---|---|
+| ![Login](docs/screenshots/08-login.png) | ![Setup FPGA](docs/screenshots/09-setup-fpga.png) |
+
+![Setup Traffic](docs/screenshots/10-setup-traffic.png)
+
+**Authentication** (`falcon/backend/auth.py`): standard library only, no extra dependency. Passwords are hashed with `scrypt` and a per-user salt. Sessions are random tokens in an `HttpOnly`, `SameSite=Strict` cookie. Five failed logins lock the source for a while. The account file lives **outside the repository** with mode `0600` (`FALCON_USERS_FILE`). Two roles: `operator` (full control) and `viewer` (can read the setup pages, any change returns 403). Create accounts on the host, never over HTTP:
+
+```bash
+python3 falcon/backend/auth.py add <name> operator     # prints a random password once
+python3 falcon/backend/auth.py add <name> viewer
+```
+
+Passwords are never rotated automatically and never written to logs.
+
+**Setup FPGA** documents the part of the design that is board-independent (`gtpu_parser`, `protocol_classifier`, `stats_counter`, `telemetry_packer` and the byte contract) and the part that must be redone per board (Ethernet MAC/PHY, pin constraints, clocks). Only the Genesys Virtex-5 exists as gateware; the other profiles are listed as *planned* and are not faked.
 
 ---
 
@@ -136,16 +166,35 @@ Self-test (pack → decode roundtrip): `python -m falcon.shared.contract`
 
 ---
 
-## Traffic modes: synthetic vs live
+## Traffic modes
 
-The gateware counts whatever arrives on UDP `:2152`. It cannot tell where a packet came from, so the **source of the traffic** is a deployment fact, not a gateware fact.
+The gateware counts whatever arrives on UDP `:2152`. It cannot tell where a packet came from, so the **source of the traffic** is a deployment fact, not a gateware fact. The dashboard badge tells the viewer which one is active.
 
-| Mode | Source | How to recognise it |
+| Mode | Source | Dashboard badge |
 |---|---|---|
-| **Synthetic (demo)** | The backend (`FALCON_DEMO_TRAFFIC`) or `scripts/send_gtpu.py` sends GTP-U frames from a host in the lab | Dashboard shows the **TRAFIK UJI SINTETIS** badge. All frames come from `192.168.0.101` |
-| **Live** | A tap or port mirror from a real 4G/5G network cabled to the board's Ethernet port | No synthetic badge. Leave `FALCON_DEMO_TRAFFIC` empty |
+| **Synthetic** | The backend generates GTP-U test frames (`FALCON_DEMO_TRAFFIC`, or *Setup Traffic*) | **TRAFIK UJI SINTETIS** |
+| **LTE stack replay** | GTP-U captured from a simulated 4G network (Open5GS core + srsRAN eNB and UE), replayed to the board | **REPLAY STACK LTE** |
+| **Live** | A tap or port mirror from a real network cabled to the board's Ethernet port | none. Leave the other sources off |
 
 The public demo runs a synthetic burst profile (30 s active, 90 s idle, 120 pps) so the dashboard is never empty. **Numbers from the demo are test traffic.**
+
+### LTE stack source
+
+*Setup Traffic → Stack LTE simulasi* prepares the simulated network, captures real GTP-U from its S1-U interface, and replays that capture to the board.
+
+```
+ UE (srsue) ──ZMQ──► eNB (srsenb) ──S1-U GTP-U──► SGW-U/UPF (Open5GS)
+                          │  UDP 2152, 192.168.0.131 → .130
+                          └──► tcpdump (captured once) ──► backend replay ──► board :2152
+```
+
+1. **Prepare & capture** starts the EPC (HSS, MME, SGW-C/U, SMF, UPF, PCRF), the eNB and a UE that attaches and sends traffic, then captures S1-U. By default the stack is stopped afterwards to free about 1.4 GB of RAM.
+2. **Start** with source *Replay stack LTE* loops the captured payloads to the board. The stack does not need to be running for the replay.
+3. The board is **not** in the S1-U path. It receives a copy, so it never interferes with the simulated network.
+
+Honest limits: the radio is virtual (ZMQ, 6 PRB / 1.92 MHz so a 4-core machine keeps up), the network is **4G (LTE)**, not 5G NSA, and the replayed packets keep their payload but get new outer addresses. The backend calls only `scripts/stack/stackctl.sh` with four fixed actions (`status`, `up`, `capture`, `down`); it never runs arbitrary commands.
+
+Measured on the real board with this path: 400 captured packets of 236 B raised `total_bytes` by exactly **94 400**, with `ul_pps` steady at 100.
 
 ---
 
@@ -251,6 +300,9 @@ The bitstream is **volatile** (SRAM): it is lost at power-off. Flashing it to th
 | `FALCON_PUBLIC` | `0` | `1` = reject `POST /api/generator/*` with 403 |
 | `FALCON_DEMO_TRAFFIC` | empty | `burst:30:90:120` = 30 s on, 90 s off, 120 pps. Empty = off |
 | `FALCON_DEMO_TARGET` | `192.168.0.20:2152` | Where the demo traffic is sent |
+| `FALCON_USERS_FILE` | `~/.falcon/users.json` | Operator accounts (scrypt hashes, mode 0600, outside the repo) |
+| `FALCON_STACK_DIR` | empty | Directory of the LTE stack (compose file and `pcap/`). Empty = stack source shown as not installed |
+| `FALCON_STACK_IF` | `enp2s0` | Interface used to capture S1-U |
 
 ### REST API
 
@@ -270,6 +322,10 @@ The bitstream is **volatile** (SRAM): it is lost at power-off. Flashing it to th
 | `/api/demo` | GET | Demo traffic state |
 | `/api/rawlog` | GET | Raw datagram log |
 | `/api/generator/status` · `start` · `stop` | GET / POST / POST | Packet generator control (blocked when `FALCON_PUBLIC=1`) |
+| `/api/login` · `/api/logout` · `/api/me` | POST / POST / GET | Operator session |
+| `/api/setup/fpga` · `/api/setup/traffic` | GET | Setup pages data (login required) |
+| `/api/traffic/start` · `stop` | POST | Start or stop test traffic; `source` = `synthetic` or `stack-lte` (operator only) |
+| `/api/stack/prepare` · `stop` | POST | Start the LTE stack and capture, or stop it (operator only) |
 
 `ws://<host>:<port>/ws` sends a snapshot on connect, then per-update frames.
 
@@ -308,14 +364,17 @@ falcon/
 ├── falcon/
 │   ├── shared/contract.py        byte contract 0x01-0x04 (source of truth)
 │   ├── simulator/sim.py          contract-identical emulator
-│   ├── backend/server.py         UDP + WebSocket + REST + static
-│   └── dashboard/                index.html (single file) + logo assets
+│   ├── backend/                  server.py (UDP + WebSocket + REST), auth.py (operator login),
+│   │                             stack.py + gtpu_pcap.py (LTE stack source)
+│   └── dashboard/                index.html, login.html, setup-fpga.html, setup-traffic.html, nav.js, setup.css
 ├── fpga/
 │   ├── rtl/                      DPI core (VHDL)
 │   ├── eth/                      Ethernet/UDP, LED and LCD indicators (Verilog), UCF, build script
 │   ├── tb/  sim/                 testbenches, golden vectors, run scripts
 │   └── constraints/              pin notes
-├── scripts/                      send_gtpu.py · gen_loop.sh · falcon-gen
+├── scripts/                      send_gtpu.py · replay_gtpu.py · gen_loop.sh · falcon-gen
+│   ├── stack/                    stackctl.sh (fixed actions) · ue_traffic.pl
+│   └── test_*.sh / test_*.py     auth, stack and protocol-normalisation tests
 ├── deploy/                       falcon-be.service
 └── docs/                         BRD, PRD, DOKUMENTASI (Indonesian), screenshots
 ```
@@ -326,19 +385,21 @@ falcon/
 
 These are open and visible on the live dashboard today.
 
-1. **Protocol distribution is not a percentage yet.** The gateware sends the raw 16-bit packet count of each class (`lo16(count)`) in `0x04`, while the host divides it by 100 as if it were a percentage ×100. With real traffic the donut can read more than 100 % (for example `gtp_u` 358 %). The fix is to normalise in the gateware or in the backend using the sum of the five counters.
-2. **Active IMSI and Active TEID KPI can read 0** while the session table is filled. The top-level KPI counters (`total_imsi`, `active_teid`) are not yet driven from the session table.
+1. **Protocol distribution is normalised on the host, not in the gateware.** The gateware sends the raw 16-bit packet count of each class (`lo16(count)`) in `0x04`, while the contract says percentage ×100. The backend now turns the counts into percentages (the response carries `normalized` and `raw_total`). Because the count wraps at 65 535, the ratio can drift on long runs; the real fix is to send percentages from the gateware.
+2. **Active IMSI and Active TEID KPI can read 0** while the session table is filled. The top-level counters (`total_imsi`, `active_teid`) are not yet driven from the session table.
 3. **Downlink path is not implemented.** The board counts uplink only, so `dl_pps` is 0.
 4. **IMSI is synthetic.** Real IMSI extraction from GTP-C/NAS is not in the gateware.
 5. **Bitstream is volatile.** It must be reloaded after every power cycle.
+6. **The LTE stack is 4G, not 5G NSA.** A real NSA setup (LTE anchor plus NR secondary) is not configured.
 
 ---
 
 ## Roadmap
 
-- Fix the protocol percentage and the IMSI/TEID KPI counters (issues 1 and 2)
+- Send protocol percentages from the gateware and drive the IMSI/TEID KPI counters from the session table
 - Persist the bitstream to the board PROM and make the host address `192.168.0.101` persistent
 - `SIM` / `LIVE` / `IDLE` status on the LCD, from the packet source
+- 5G NSA source: LTE anchor plus NR secondary instead of LTE only
 - tshark correlation: capture `:2152` in and `:50000` out and compare TEIDs as proof of parsing in silicon
 - Downlink path, real IMSI extraction, multi-protocol capture (GTP-C, PFCP, BSSGP)
 - Per-session detail view in the dashboard
@@ -350,7 +411,7 @@ These are open and visible on the live dashboard today.
 | Layer | Technology |
 |---|---|
 | Gateware | VHDL · Verilog · Xilinx ISE 14.7 · Virtex-5 XC5VLX50T |
-| Simulation | GHDL · Icarus Verilog |
+| Simulation | GHDL · Icarus Verilog · Open5GS + srsRAN (LTE traffic source) |
 | Backend | Python 3.13 · asyncio · aiohttp · WebSocket |
 | Frontend | Vanilla HTML/CSS/JS · no framework · no build step |
 | Deployment | systemd · Cloudflare tunnel |
