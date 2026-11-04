@@ -4,7 +4,7 @@
   const here = location.pathname.replace(/\/$/,'') || '/';
   const hdr = document.getElementById('hdr');
   hdr.innerHTML = '<header><img class="logo" src="/static/falcon-logo-64.png" width="40" height="40" alt="FALCON">' +
-    '<div class="brand"><h1>FALCON <span>Setup</span></h1><small>Arah Karya Sinergi · GTP-U DPI Engine</small></div>' +
+    '<div class="brand"><h1>FALCON <span>Setup</span></h1><small>Arah Karya Sinergi × NOZ Berkarya · GTP-U DPI Engine</small></div>' +
     '<nav>' + links.map(([h,t]) => '<a href="'+h+'"'+(h===here?' class="on"':'')+'>'+t+'</a>').join('') +
     '<span class="who" id="who"></span><button id="out">Keluar</button></nav></header>';
   fetch('/api/me').then(r=>r.json()).then(j=>{
