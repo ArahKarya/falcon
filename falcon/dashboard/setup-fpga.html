@@ -20,6 +20,12 @@
     <div class="grid2">
       <div>
         <div class="stat"><span class="dot" id="ldot"></span><span id="ltxt">memeriksa…</span></div>
+        <div id="loaderbox" style="display:none;margin-top:10px">
+          <button class="btn" id="bload">Muat gateware</button>
+          <div class="msg" id="loadmsg"></div>
+          <div class="note" style="margin-top:8px">Papan kehilangan gateware setiap listrik mati (disimpan di SRAM). Tombol ini memuat ulang
+            lewat JTAG. Ia <b>tidak menyalakan listrik papan</b> dan hanya aktif saat papan belum mengirim telemetri.</div>
+        </div>
         <div class="card" style="margin-top:12px" id="actcard"></div>
       </div>
       <div class="card">
@@ -74,6 +80,23 @@ async function load(){
   document.getElementById('ltxt').textContent = lk.connected ? 'FPGA terhubung' : 'FPGA tidak terhubung';
   document.getElementById('linkkv').innerHTML = '<b>Datagram terakhir</b> '+(lk.last_rx_age!=null?lk.last_rx_age+' dtk lalu':'—')+
     '<br><b>Port telemetri</b> UDP '+j.udp_port+'<br><b>Kontrak</b> tipe '+j.contract.types.map(t=>'0x0'+t).join(', ')+', header '+j.contract.header_bytes+' B, '+j.contract.endian+'-endian';
+  const ld = j.loader||{}, job = ld.job||{};
+  const lb = document.getElementById('loaderbox');
+  lb.style.display = (ld.installed && window.FALCON_ROLE==='operator') ? '' : 'none';
+  const busy = job.phase==='loading';
+  document.getElementById('bload').disabled = busy || !!lk.connected;
+  const lm = document.getElementById('loadmsg');
+  let hint = '';
+  if (ld.installed && !lk.connected) {
+    const why = [];
+    if (ld.jtag_cable===false) why.push('kabel JTAG tidak terdeteksi');
+    if (ld.eth_link===false) why.push('kabel ethernet papan belum tersambung');
+    if (why.length) hint = 'Periksa: '+why.join(', ')+'.';
+  }
+  if (job.phase==='loading') { lm.className='msg'; lm.textContent=job.msg; }
+  else if (job.phase==='error') { lm.className='msg err'; lm.textContent=job.msg; }
+  else if (job.phase==='done') { lm.className='msg ok'; lm.textContent=job.msg; }
+  else { lm.className='msg'; lm.textContent=hint; }
   document.getElementById('shared').innerHTML = j.shared_core.map(x=>'<code>'+esc(x)+'</code>').join(' ');
   document.getElementById('specific').innerHTML = j.port_specific.map(x=>'• '+esc(x)).join('<br>');
   document.getElementById('profiles').innerHTML = j.profiles.map(p=>{
@@ -82,7 +105,12 @@ async function load(){
       '<div class="d">'+esc(p.note)+'</div><div class="kv"><b>Chip</b> '+esc(p.chip)+'<br><b>Toolchain</b> '+esc(p.toolchain)+'<br><b>PHY</b> '+esc(p.phy)+'</div></div>';
   }).join('');
 }
-setInterval(()=>{ if (window.FALCON_ROLE) load(); }, 5000);
+document.getElementById('bload').onclick = async ()=>{
+  const lm=document.getElementById('loadmsg'); lm.className='msg'; lm.textContent='…';
+  const r=await fetch('/api/fpga/load',{method:'POST'}); const j=await r.json();
+  if(!j.ok){ lm.className='msg err'; lm.textContent=j.error||'Gagal'; } load();
+};
+setInterval(()=>{ if (window.FALCON_ROLE) load(); }, 3000);
 </script>
 </body>
 </html>

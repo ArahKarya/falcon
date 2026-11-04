@@ -14,6 +14,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from shared import contract as C
 import auth
 import stack
+import fpga
 import gtpu_pcap
 
 UDP_PORT = int(os.environ.get("FALCON_UDP_PORT", 50000))
@@ -532,9 +533,11 @@ FPGA_PROFILES = [
 
 async def api_setup_fpga(r):
     lk = link_status()
+    fs = await fpga.status()
     return web.json_response({
         "active": "genesys-v5", "profiles": FPGA_PROFILES,
         "link": lk, "udp_port": UDP_PORT,
+        "loader": dict(fs, job=fpga.job),
         "contract": {"types": [1, 2, 3, 4], "header_bytes": 4, "endian": "big"},
         "shared_core": ["gtpu_parser", "protocol_classifier", "stats_counter", "telemetry_packer"],
         "port_specific": ["Ethernet MAC/PHY", "pin constraint (UCF/XDC)", "clock/PLL"],
@@ -608,6 +611,18 @@ async def api_stack_prepare(r):
     return web.json_response({"ok": True, "job": stack.job})
 
 
+async def api_fpga_load(r):
+    if not fpga.installed():
+        return web.json_response({"ok": False, "error": "pemuat gateware tidak terpasang di host ini"}, status=409)
+    if fpga.busy():
+        return web.json_response({"ok": False, "error": "pemuatan sedang berjalan"}, status=409)
+    if link_status().get("connected"):
+        # papan sudah hidup dan mengirim telemetri: jangan reprogram tanpa perlu (menghindari TX bisu)
+        return web.json_response({"ok": False, "error": "papan sudah terhubung; pemuatan ulang tidak diperlukan"}, status=409)
+    asyncio.ensure_future(fpga.load())
+    return web.json_response({"ok": True, "job": fpga.job})
+
+
 async def api_stack_stop(r):
     if not stack.installed():
         return web.json_response({"ok": False, "error": "stack tidak terpasang di host ini"}, status=409)
@@ -654,6 +669,7 @@ def make_app():
         web.post("/api/traffic/stop", api_traffic_stop),
         web.post("/api/stack/prepare", api_stack_prepare),
         web.post("/api/stack/stop", api_stack_stop),
+        web.post("/api/fpga/load", api_fpga_load),
         web.get("/ws", ws_handler),
         web.get("/api/health", api_health),
         web.get("/api/stats/global", api_global),
