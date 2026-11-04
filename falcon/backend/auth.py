@@ -7,6 +7,7 @@ Prinsip:
   - Sandi acak dibuat SEKALI oleh `python -m falcon.backend.auth add <user> <role>` dan
     TIDAK pernah diputar otomatis.
 """
+from __future__ import annotations
 import base64, hashlib, hmac, json, os, secrets, sys, time
 
 USERS_FILE = os.environ.get("FALCON_USERS_FILE", os.path.expanduser("~/.falcon/users.json"))
