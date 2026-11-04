@@ -12,6 +12,7 @@ import asyncio, json, time, sys, os, collections, subprocess
 from aiohttp import web
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from shared import contract as C
+import auth
 
 UDP_PORT = int(os.environ.get("FALCON_UDP_PORT", 50000))
 HTTP_PORT = int(os.environ.get("FALCON_HTTP_PORT", 8080))
@@ -294,14 +295,13 @@ def _load_payloads():
     return out
 
 
-async def demo_traffic_task():
+DEMO_LIMITS = {"pps": (1, 5000), "on_s": (1, 3600), "off_s": (0, 3600)}
+_demo_task = [None]
+
+
+async def demo_traffic_task(on_s: int, off_s: int, pps: int):
+    """Kirim GTP-U sintetis ke board: aktif on_s detik @ pps, jeda off_s detik (0 = terus-menerus)."""
     import socket
-    try:
-        _, on_s, off_s, pps = DEMO_SPEC.split(":")
-        on_s, off_s, pps = int(on_s), int(off_s), int(pps)
-    except ValueError:
-        print(f"[FALCON-BE] FALCON_DEMO_TRAFFIC tidak valid: {DEMO_SPEC!r} (format burst:ON:OFF:PPS)")
-        return
     host, port = DEMO_TARGET.rsplit(":", 1)
     payloads = _load_payloads()
     if not payloads:
@@ -312,25 +312,44 @@ async def demo_traffic_task():
     loop = asyncio.get_event_loop()
     i = 0
     print(f"[FALCON-BE] demo traffic AKTIF: {on_s}s on @ ~{pps} pps, {off_s}s off -> {DEMO_TARGET}")
-    while True:
-        demo["active"] = True
-        end = loop.time() + on_s
-        demo["next_flip"] = int(time.time() + on_s)
-        gap = 1.0 / pps
-        nxt = loop.time()
-        while loop.time() < end:
-            try:
-                sock.sendto(payloads[i % len(payloads)], (host, int(port)))
-                demo["sent"] += 1
-            except OSError:
-                pass
-            i += 1
-            nxt += gap
-            delay = nxt - loop.time()
-            await asyncio.sleep(delay if delay > 0 else 0)
-        demo["active"] = False
-        demo["next_flip"] = int(time.time() + off_s)
-        await asyncio.sleep(off_s)
+    try:
+        while True:
+            demo["active"] = True
+            end = loop.time() + on_s
+            demo["next_flip"] = int(time.time() + on_s)
+            gap = 1.0 / pps
+            nxt = loop.time()
+            while loop.time() < end:
+                try:
+                    sock.sendto(payloads[i % len(payloads)], (host, int(port)))
+                    demo["sent"] += 1
+                except OSError:
+                    pass
+                i += 1
+                nxt += gap
+                delay = nxt - loop.time()
+                await asyncio.sleep(delay if delay > 0 else 0)
+            if off_s <= 0:
+                continue
+            demo["active"] = False
+            demo["next_flip"] = int(time.time() + off_s)
+            await asyncio.sleep(off_s)
+    finally:
+        demo.update({"enabled": False, "active": False})
+        sock.close()
+
+
+def demo_start(on_s: int, off_s: int, pps: int):
+    demo_stop()
+    _demo_task[0] = asyncio.ensure_future(demo_traffic_task(on_s, off_s, pps))
+
+
+def demo_stop():
+    t = _demo_task[0]
+    if t and not t.done():
+        t.cancel()
+    _demo_task[0] = None
+    demo.update({"enabled": False, "active": False})
 
 
 async def api_demo(r):
@@ -358,19 +377,17 @@ async def api_measure(r):
 
 
 async def api_gen_status(r):
-    if PUBLIC:
+    if PUBLIC and not _session(r):
         return web.json_response({"running": False, "detail": "disabled", "disabled": True})
     ok, out = _gen("status")
     running = out.startswith("RUNNING")
     return web.json_response({"running": running, "detail": out})
 
 async def api_gen_start(r):
-    if PUBLIC: return _deny_public()
     ok, out = _gen("start")
     return web.json_response({"ok": ok, "detail": out, "running": ("STARTED" in out or "ALREADY_RUNNING" in out)})
 
 async def api_gen_stop(r):
-    if PUBLIC: return _deny_public()
     ok, out = _gen("stop")
     return web.json_response({"ok": ok, "detail": out, "running": False})
 
@@ -381,11 +398,150 @@ async def api_rawlog(r):
     return web.json_response(list(state["rawlog"])[-lim:])
 
 
+# ---------------------------------------------------------------- auth + halaman
+PAGES = os.path.join(os.path.dirname(__file__), "..", "dashboard")
+# Halaman yang boleh dilihat tanpa login. Selainnya wajib operator (lihat gate).
+OPEN_PATHS = {"/", "/login", "/api/login", "/api/logout", "/api/me", "/api/version", "/api/health",
+              "/api/link", "/api/demo", "/api/measure", "/api/snapshot", "/api/history", "/api/events",
+              "/api/events/counter", "/api/stats/global", "/api/stats/teid", "/api/stats/protocol",
+              "/api/rawlog", "/api/generator/status", "/ws"}
+
+
+def _session(r):
+    return auth.get_session(r.cookies.get(auth.COOKIE))
+
+
+def _client_ip(r):
+    return r.headers.get("CF-Connecting-IP") or r.headers.get("X-Forwarded-For", "").split(",")[0].strip() or r.remote or "?"
+
+
+@web.middleware
+async def gate(request, handler):
+    path = request.path
+    if path.startswith("/static/") or path in OPEN_PATHS:
+        return await handler(request)
+    sess = _session(request)
+    if not sess:
+        if path.startswith("/api/"):
+            return web.json_response({"ok": False, "error": "login diperlukan"}, status=401)
+        raise web.HTTPFound("/login?next=" + path)
+    if request.method != "GET" and sess["role"] != "operator":
+        return web.json_response({"ok": False, "error": "hanya operator"}, status=403)
+    request["sess"] = sess
+    return await handler(request)
+
+
+async def api_login(r):
+    ip = _client_ip(r)
+    wait = auth.locked(ip)
+    if wait:
+        return web.json_response({"ok": False, "error": f"terlalu banyak percobaan, coba lagi {wait} dtk"}, status=429)
+    try:
+        d = await r.json()
+    except Exception:
+        return web.json_response({"ok": False, "error": "format salah"}, status=400)
+    user, pw = str(d.get("username", ""))[:64], str(d.get("password", ""))[:256]
+    role = auth.verify(user, pw)
+    if not role:
+        auth.note_fail(ip)
+        await asyncio.sleep(0.6)        # perlambat tebakan
+        return web.json_response({"ok": False, "error": "nama pengguna atau sandi salah"}, status=401)
+    auth.note_ok(ip)
+    tok = auth.new_session(user, role)
+    resp = web.json_response({"ok": True, "user": user, "role": role})
+    resp.set_cookie(auth.COOKIE, tok, max_age=auth.SESSION_TTL, httponly=True, samesite="Strict",
+                    secure=r.headers.get("X-Forwarded-Proto") == "https" or r.scheme == "https", path="/")
+    return resp
+
+
+async def api_logout(r):
+    auth.end_session(r.cookies.get(auth.COOKIE))
+    resp = web.json_response({"ok": True})
+    resp.del_cookie(auth.COOKIE, path="/")
+    return resp
+
+
+async def api_me(r):
+    s = _session(r)
+    return web.json_response({"logged_in": bool(s), "user": s and s["user"], "role": s and s["role"]})
+
+
+def _page(name):
+    async def h(r):
+        f = os.path.join(PAGES, name)
+        if os.path.exists(f):
+            return web.FileResponse(f, headers={"Cache-Control": "no-store"})
+        return web.Response(text=f"{name} belum ada", content_type="text/plain", status=404)
+    return h
+
+
+# --- Setup FPGA: profil perangkat. Hanya Genesys yang didukung; sisanya ditandai jujur.
+FPGA_PROFILES = [
+    {"id": "genesys-v5", "name": "Digilent Genesys", "chip": "Xilinx Virtex-5 XC5VLX50T", "status": "supported",
+     "toolchain": "ISE 14.7", "phy": "GMII 1 Gbps (88E1111)", "ip": "192.168.0.20",
+     "note": "Target saat ini. Gateware terverifikasi di silikon."},
+    {"id": "artix7", "name": "Artix-7 (mis. Nexys A7 / Arty A7)", "chip": "Xilinx Artix-7", "status": "planned",
+     "toolchain": "Vivado", "phy": "RGMII", "ip": None,
+     "note": "Belum ada. Perlu porting lapisan Ethernet (RGMII) dan constraint pin. Inti DPI (VHDL) dapat dipakai ulang."},
+    {"id": "zynq", "name": "Zynq-7000 / UltraScale+", "chip": "Xilinx Zynq", "status": "planned",
+     "toolchain": "Vivado", "phy": "GEM / RGMII", "ip": None,
+     "note": "Belum ada. Inti DPI dipakai di PL; telemetri bisa lewat PS."},
+    {"id": "ecp5", "name": "Lattice ECP5", "chip": "Lattice ECP5", "status": "planned",
+     "toolchain": "Yosys + nextpnr (open source)", "phy": "RGMII", "ip": None,
+     "note": "Belum ada. Jalur toolchain open source; VHDL perlu ghdl-yosys."},
+]
+
+
+async def api_setup_fpga(r):
+    lk = link_status()
+    return web.json_response({
+        "active": "genesys-v5", "profiles": FPGA_PROFILES,
+        "link": lk, "udp_port": UDP_PORT,
+        "contract": {"types": [1, 2, 3, 4], "header_bytes": 4, "endian": "big"},
+        "shared_core": ["gtpu_parser", "protocol_classifier", "stats_counter", "telemetry_packer"],
+        "port_specific": ["Ethernet MAC/PHY", "pin constraint (UCF/XDC)", "clock/PLL"],
+    })
+
+
+async def api_setup_traffic(r):
+    return web.json_response({
+        "sources": [
+            {"id": "synthetic", "name": "Sintetis (backend)", "status": "ready",
+             "desc": "Backend mengirim paket GTP-U uji ke board. Tanpa jaringan nyata."},
+            {"id": "5g-nsa", "name": "Stack 5G NSA (Open5GS + srsRAN + UERANSIM)", "status": STACK["status"],
+             "desc": "Trafik GTP-U dari simulasi jaringan 5G NSA, diteruskan ke board."},
+            {"id": "live", "name": "Live (antarmuka fisik)", "status": "manual",
+             "desc": "Kabel mirror/TAP dari jaringan nyata ke port Ethernet board. Matikan sumber lain."},
+        ],
+        "demo": demo, "target": DEMO_TARGET, "limits": DEMO_LIMITS, "stack": STACK,
+    })
+
+
+async def api_traffic_start(r):
+    d = await r.json()
+    try:
+        pps, on_s, off_s = int(d["pps"]), int(d["on_s"]), int(d["off_s"])
+    except (KeyError, ValueError, TypeError):
+        return web.json_response({"ok": False, "error": "pps/on_s/off_s wajib angka"}, status=400)
+    for k, v in (("pps", pps), ("on_s", on_s), ("off_s", off_s)):
+        lo, hi = DEMO_LIMITS[k]
+        if not lo <= v <= hi:
+            return web.json_response({"ok": False, "error": f"{k} harus {lo}..{hi}"}, status=400)
+    demo_start(on_s, off_s, pps)
+    return web.json_response({"ok": True, "demo": demo})
+
+
+async def api_traffic_stop(r):
+    demo_stop()
+    return web.json_response({"ok": True, "demo": demo})
+
+
+# status stack 5G NSA (diisi oleh modul stack nanti; sementara belum terpasang)
+STACK = {"status": "not-installed", "containers": [], "detail": "Belum dijalankan dari halaman ini."}
+
+
 async def index(r):
-    f = os.path.join(DASH_DIR, "index.html")
-    if os.path.exists(f):
-        return web.FileResponse(f)
-    return web.Response(text="dashboard belum ada", content_type="text/plain")
+    return await _page("index.html")(r)
 
 
 async def on_startup(app):
@@ -394,15 +550,31 @@ async def on_startup(app):
                                         local_addr=("0.0.0.0", UDP_PORT))
     asyncio.ensure_future(link_watcher())
     if DEMO_SPEC and DEMO_SPEC.lower() != "off":
-        asyncio.ensure_future(demo_traffic_task())
+        try:
+            _, on_s, off_s, pps = DEMO_SPEC.split(":")
+            demo_start(int(on_s), int(off_s), int(pps))
+        except ValueError:
+            print(f"[FALCON-BE] FALCON_DEMO_TRAFFIC tidak valid: {DEMO_SPEC!r} (format burst:ON:OFF:PPS)")
+    if not auth.has_users():
+        print("[FALCON-BE] PERINGATAN: belum ada akun operator -> halaman Setup terkunci. Buat: python3 auth.py add <user> operator")
     print(f"[FALCON-BE] UDP listener :{UDP_PORT}  ·  HTTP/WS :{HTTP_PORT}  ·  mode={MODE} public={PUBLIC}")
 
 
 def make_app():
-    app = web.Application()
+    app = web.Application(middlewares=[gate])
     app.on_startup.append(on_startup)
     app.add_routes([
         web.get("/", index),
+        web.get("/login", _page("login.html")),
+        web.get("/setup/fpga", _page("setup-fpga.html")),
+        web.get("/setup/traffic", _page("setup-traffic.html")),
+        web.post("/api/login", api_login),
+        web.post("/api/logout", api_logout),
+        web.get("/api/me", api_me),
+        web.get("/api/setup/fpga", api_setup_fpga),
+        web.get("/api/setup/traffic", api_setup_traffic),
+        web.post("/api/traffic/start", api_traffic_start),
+        web.post("/api/traffic/stop", api_traffic_stop),
         web.get("/ws", ws_handler),
         web.get("/api/health", api_health),
         web.get("/api/stats/global", api_global),

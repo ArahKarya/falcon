@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FALCON · Masuk Operator</title>
+<link rel="icon" type="image/png" sizes="32x32" href="/static/favicon-32.png">
+<link rel="stylesheet" href="/static/setup.css">
+</head>
+<body>
+<div class="wrap">
+  <div class="login-box">
+    <div class="panel">
+      <img class="logo" src="/static/falcon-logo-192.png" alt="FALCON">
+      <h1>FALCON <span>Operator</span></h1>
+      <div class="sub">GTP-U DPI Engine</div>
+
+      <div class="guard"><span>🔒</span><span><b>Akses terbatas.</b> Perangkat ini mengontrol sumber trafik dan konfigurasi FPGA.
+        Hanya <b>operator terverifikasi</b> yang boleh masuk. Setiap percobaan masuk dicatat dan dibatasi.</span></div>
+
+      <form id="f" autocomplete="on">
+        <label for="u">Nama pengguna</label>
+        <input id="u" type="text" autocomplete="username" autocapitalize="none" spellcheck="false" required autofocus>
+        <label for="p">Sandi</label>
+        <input id="p" type="password" autocomplete="current-password" required>
+        <button class="btn" id="b" type="submit">Masuk</button>
+        <div class="msg" id="m"></div>
+      </form>
+    </div>
+    <div class="foot">Hanya melihat dashboard? <a href="/">Buka dashboard publik</a> · tanpa kontrol</div>
+  </div>
+</div>
+<script>
+const q = new URLSearchParams(location.search);
+let next = q.get('next') || '/setup/traffic';
+if (!next.startsWith('/') || next.startsWith('//')) next = '/setup/traffic';   // cegah open-redirect
+fetch('/api/me').then(r=>r.json()).then(j=>{ if (j.logged_in) location.replace(next); });
+const f=document.getElementById('f'), m=document.getElementById('m'), b=document.getElementById('b');
+f.addEventListener('submit', async e=>{
+  e.preventDefault(); b.disabled=true; m.className='msg'; m.textContent='Memeriksa…';
+  try{
+    const r = await fetch('/api/login', {method:'POST', headers:{'content-type':'application/json'},
+      body: JSON.stringify({username:document.getElementById('u').value.trim(), password:document.getElementById('p').value})});
+    const j = await r.json();
+    if (j.ok){ m.className='msg ok'; m.textContent='Berhasil. Mengalihkan…'; location.replace(next); return; }
+    m.className='msg err'; m.textContent = j.error || 'Gagal masuk';
+    document.getElementById('p').value=''; document.getElementById('p').focus();
+  }catch(_){ m.className='msg err'; m.textContent='Tidak bisa menghubungi server'; }
+  b.disabled=false;
+});
+</script>
+</body>
+</html>
