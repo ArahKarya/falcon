@@ -90,18 +90,22 @@ capture() {
   local secs=${1:-12} pps=${2:-120}
   local ip; ip="$(ue_ip)"; [ -n "$ip" ] || { log "UE belum attach (jalankan up)"; return 1; }
   mkdir -p "$D/pcap"
-  local tmp="$PCAP.tmp.$$"
+  local tmp="$D/pcap/.cap.$$.pcap"
   $DK cp "$HERE/ue_traffic.pl" falcon_enb:/tmp/ue_traffic.pl
-  sudo -n timeout $((secs+8)) tcpdump -i "$IFACE" -nn -U -w "$tmp" "udp port 2152 and host 192.168.0.131 and host 192.168.0.130" >/dev/null 2>&1 &
+  # -Z root: jangan turun ke user 'tcpdump' (file jadi milik tcpdump & tak bisa dipindah). timeout = pengaman.
+  sudo -n timeout $((secs+15)) tcpdump -Z root -i "$IFACE" -nn -U -w "$tmp" \
+      "udp port 2152 and host 192.168.0.131 and host 192.168.0.130" >/dev/null 2>&1 &
   local tp=$!
   sleep 2
-  $DK exec falcon_enb sh -c "ip netns exec ue1 perl /tmp/ue_traffic.pl $((secs*pps)) $pps"
+  $DK exec falcon_enb sh -c "ip netns exec ue1 perl /tmp/ue_traffic.pl $((secs*pps)) $pps" >&2
   sleep 2
-  sudo -n pkill -INT -P $$ tcpdump 2>/dev/null; sudo -n pkill -INT -f "tcpdump.*$(basename "$tmp")" 2>/dev/null
+  # hentikan tcpdump yang ditulis ke $tmp (sudo/timeout membungkusnya, jadi cari lewat pola argumen)
+  sudo -n pkill -INT -f "tcpdump -Z root .* -w $tmp" 2>/dev/null
   wait "$tp" 2>/dev/null
-  n=$(tcpdump -nn -r "$tmp" 2>/dev/null | wc -l)
-  if [ "${n:-0}" -lt 10 ]; then log "tangkapan kosong ($n paket)"; rm -f "$tmp"; return 1; fi
-  sudo -n chown "$(id -un)":"$(id -gn)" "$tmp" 2>/dev/null; mv -f "$tmp" "$PCAP"
+  sudo -n chown "$(id -un)":"$(id -gn)" "$tmp" 2>/dev/null
+  local n; n=$(tcpdump -nn -r "$tmp" 2>/dev/null | wc -l)
+  if [ "${n:-0}" -lt 10 ]; then log "tangkapan kosong ($n paket)"; sudo -n rm -f "$tmp"; return 1; fi
+  mv -f "$tmp" "$PCAP" || { log "gagal memindahkan pcap"; return 1; }
   log "tangkapan $n paket -> $PCAP"
 }
 
