@@ -30,6 +30,28 @@ PUBLIC = os.environ.get("FALCON_PUBLIC", "0") == "1"
 DASH_DIR = os.path.join(os.path.dirname(__file__), "..", "dashboard")
 GEN_CTL = os.path.join(os.path.dirname(__file__), "..", "..", "scripts", "falcon-gen")
 
+PROTO_KEYS = ("gtp_u", "gtp_c", "pfcp", "bssgp", "other")
+
+
+def normalize_protocol(d: dict) -> dict:
+    """Jadikan distribusi protokol selalu PERSEN (0..100, jumlah 100).
+
+    Kontrak telemetri 0x04 menyebut basis 10000 (persen x 100), dan simulator mengirim itu. Gateware
+    saat ini mengirim HITUNGAN MENTAH 16-bit per kelas (lihat falcon_top.vhd: lo16(s_gu)...), sehingga
+    pembagian /100 pada unpack menghasilkan angka seperti 574,27 'persen'. Cara membedakannya:
+    bila jumlah kelas ~100 (+-1) berarti sudah persen; selain itu dianggap hitungan (x100 dari unpack)
+    dan dinormalkan terhadap totalnya. Catatan: hitungan 16-bit melingkar di 65535, jadi pada trafik
+    lama rasio bisa bergeser sampai gateware mengirim persen langsung (lihat DOKUMENTASI, batasan).
+    """
+    vals = {k: float(d.get(k, 0) or 0) for k in PROTO_KEYS}
+    total = sum(vals.values())
+    if total <= 0:
+        return dict(vals, raw_total=0, normalized=False)
+    if abs(total - 100.0) <= 1.0:
+        return dict(vals, raw_total=round(total * 100), normalized=False)
+    return dict({k: round(v / total * 100.0, 2) for k, v in vals.items()},
+                raw_total=round(total * 100), normalized=True)
+
 # ---- in-memory state ----
 HISTORY_MAX = 900          # titik history (1 titik/detik => 15 menit)
 LINK_TIMEOUT = 3.0         # detik tanpa datagram => board dianggap Disconnected
@@ -129,6 +151,8 @@ def update_state(msg: dict):
             "drop_rate": g.get("drop_rate", 0),
         })
     elif t == "protocol":
+        # msg["data"] ikut dibroadcast ke WebSocket: tulis hasil normalisasi di sini supaya REST & WS sama.
+        msg["data"] = normalize_protocol(msg["data"])
         state["protocol"] = {**msg["data"], "ts": msg.get("ts", int(time.time()))}
     elif t == "teid":
         d = msg["data"]; d["_seen"] = time.time()
@@ -384,7 +408,7 @@ async def api_measure(r):
         {"k": "imsi", "name": "IMSI Aktif", "unit": "pengguna", "status": "belum-ada",
          "note": "Ekstraksi IMSI / session table belum ada di gateware (Fase 2). Nilai 0 = belum diukur."},
         {"k": "protocol", "name": "Distribusi Protokol", "unit": "%", "status": "sebagian",
-         "note": "Hanya GTP-U yang terisi; GTP-C, PFCP, BSSGP butuh classifier port lain yang belum menerima traffic."},
+         "note": "Gateware mengirim hitungan mentah 16-bit per kelas; backend menormalkan ke persen. Hanya GTP-U yang terisi; GTP-C, PFCP, BSSGP butuh classifier port lain yang belum menerima traffic. Hitungan 16-bit melingkar di 65535, jadi rasio bisa bergeser pada trafik lama."},
         {"k": "events", "name": "Event", "unit": "kejadian", "status": "sebagian",
          "note": "Kode event = tipe pesan GTP-U (255=G-PDU). Event sinyal (Create/Delete Session) butuh GTP-C yang belum diparse."},
     ]})
