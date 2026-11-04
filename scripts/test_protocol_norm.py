@@ -43,5 +43,14 @@ chk("nilai None aman", r["gtp_c"] == 100.0, r)
 r = N({"gtp_u": 33.34, "gtp_c": 33.33, "pfcp": 33.33, "bssgp": 0.0, "other": 0.0})
 chk("pembulatan ~100 tidak dinormalkan ulang", r["normalized"] is False, r)
 
+# 6) jalur WebSocket & snapshot: pesan yang DIBROADCAST harus sudah persen (bug lolos di REST-only)
+import json
+from server import update_state  # noqa: E402
+msg = {"type": "protocol", "ts": 1, "data": {"gtp_u": 645.5, "gtp_c": 0.0, "pfcp": 0.0, "bssgp": 0.0, "other": 0.0}}
+update_state(msg)
+chk("WS: data yang dibroadcast sudah 100%", msg["data"]["gtp_u"] == 100.0, msg["data"])
+from server import state
+chk("REST/snapshot: state protokol 100%", state["protocol"]["gtp_u"] == 100.0, state["protocol"])
+
 print("---- %d gagal" % fail)
 sys.exit(1 if fail else 0)

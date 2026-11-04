@@ -151,7 +151,9 @@ def update_state(msg: dict):
             "drop_rate": g.get("drop_rate", 0),
         })
     elif t == "protocol":
-        state["protocol"] = {**normalize_protocol(msg["data"]), "ts": msg.get("ts", int(time.time()))}
+        # msg["data"] ikut dibroadcast ke WebSocket: tulis hasil normalisasi di sini supaya REST & WS sama.
+        msg["data"] = normalize_protocol(msg["data"])
+        state["protocol"] = {**msg["data"], "ts": msg.get("ts", int(time.time()))}
     elif t == "teid":
         d = msg["data"]; d["_seen"] = time.time()
         state["teid"][d["teid"]] = d
