@@ -76,13 +76,25 @@ up() {
     wait_for 25 $DK exec falcon_enb sh -c 'grep -q "eNodeB started" /tmp/enb.out' || { log "eNB gagal start"; return 1; }
     sleep 3
   fi
+  if running falcon_enb srsue && [ -z "$(ue_ip)" ]; then
+    log "srsue hidup tanpa IP/TUN (netns rusak) -> mulai ulang eNB + UE agar state sesi bersih"
+    $DK exec falcon_enb sh -c 'pkill -9 srsue; pkill -9 srsenb; sleep 2' 2>/dev/null
+    $DK exec -d falcon_enb sh -c "cd /srsran/build/srsenb/src && ./srsenb /etc/srsran/enb.conf --log.filename=/tmp/enb.log --log.all_level=warning > /tmp/enb.out 2>&1"
+    wait_for 25 $DK exec falcon_enb sh -c 'grep -q "eNodeB started" /tmp/enb.out' || { log "eNB gagal start ulang"; return 1; }
+    sleep 3
+  fi
   if ! running falcon_enb srsue; then
     log "mulai srsue"
-    $DK exec falcon_enb sh -c 'ip netns list | grep -q ue1 || ip netns add ue1'
+    # netns lama bisa rusak setelah kontainer dimatikan/dinyalakan ("Peer netns reference is invalid"),
+    # lalu srsue gagal membuat TUN. Selalu buat ulang dari nol.
+    $DK exec falcon_enb sh -c 'ip netns del ue1 2>/dev/null; ip netns add ue1'
     $DK exec falcon_enb sh -c 'rm -f /tmp/ue.out'
     $DK exec -d falcon_enb sh -c "cd /srsran/build/srsue/src && ./srsue /etc/srsran/ue.conf --log.filename=/tmp/ue.log --log.all_level=warning --log.nas_level=info > /tmp/ue.out 2>&1"
   fi
   wait_for 60 $DK exec falcon_enb sh -c 'grep -q "Network attach successful" /tmp/ue.out' || { log "UE belum attach"; return 1; }
+  # attach di core saja belum cukup: interface TUN di netns juga harus ada, kalau tidak capture tak punya IP UE
+  wait_for 15 $DK exec falcon_enb sh -c 'ip netns exec ue1 ip -4 -br addr show tun_srsue 2>/dev/null | grep -q "[0-9]\\."' \
+    || { log "attach OK tapi tun_srsue tidak terbentuk"; return 1; }
   log "UE attach IP $(ue_ip)"
 }
 
