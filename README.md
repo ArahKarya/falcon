@@ -5,12 +5,13 @@
 **Line-rate GTP-U telemetry, parsed in silicon, observed live.**
 
 [![Hardware](https://img.shields.io/badge/Hardware-LIVE-16C79A?style=flat-square)](https://falcon.arahkarya.com)
+[![Demo](https://img.shields.io/badge/Dashboard-falcon.arahkarya.com-16C79A?style=flat-square)](https://falcon.arahkarya.com)
 [![Stack](https://img.shields.io/badge/Python%20async%20%2B%20aiohttp-0F3460?style=flat-square)](https://github.com/ArahKarya/falcon)
 [![License](https://img.shields.io/badge/License-MIT-0F3460?style=flat-square)](LICENSE)
 [![Python](https://img.shields.io/badge/Python-3.13-3776AB?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
 [![Transport](https://img.shields.io/badge/Telemetry-UDP%20%2B%20WebSocket-FF6F61?style=flat-square)](https://github.com/ArahKarya/falcon)
-[![Accelerator](https://img.shields.io/badge/Accelerator-FPGA%20GTP--U%20DPI-7B2FBF?style=flat-square)](https://github.com/ArahKarya/falcon)
-[![Gateware](https://img.shields.io/badge/Gateware-VHDL%20%C2%B7%20Virtex--5-FFA500?style=flat-square)](fpga/)
+[![Accelerator](https://img.shields.io/badge/Accelerator-FPGA%20GTP--U%20DPI-7B2FBF?style=flat-square)](fpga/)
+[![Gateware](https://img.shields.io/badge/Gateware-VHDL%20%2B%20Verilog%20%C2%B7%20Virtex--5-FFA500?style=flat-square)](fpga/)
 
 </div>
 
@@ -21,81 +22,80 @@
 
 ## Overview
 
-FALCON is a **telecom security and observability research platform** that offloads GTP-U packet inspection from software to an FPGA accelerator. The FPGA gateware parses GTP-U frames at line-rate on the mobile network data plane (4G/5G), then emits compact telemetry datagrams over UDP to a host backend — which decodes, enriches, and streams the data live to a web dashboard.
+FALCON is a **telecom security and observability research platform** that moves GTP-U packet inspection from software into an FPGA. The gateware receives GTP-U frames on UDP `:2152`, parses them in hardware, and emits compact telemetry datagrams over UDP `:50000` to a host backend. The backend decodes them and streams the result live to a web dashboard.
 
-**Core insight:** GTP-U parsing at high throughput saturates CPU. By doing the heavy lifting in reconfigurable hardware (FPGA fabric), the host is free to focus on correlation, visualization, and control — with near-zero overhead on the user plane.
+The whole host stack is built around a **single byte contract** (`falcon/shared/contract.py`) used by both the gateware and the backend. A simulator that speaks the same contract lets the host side be developed and tested without the board.
 
-The system is designed around a **single shared byte contract** (`falcon/shared/contract.py`) that both the FPGA gateware and the host backend use for encode/decode. This means the full host stack (backend + dashboard) can be built, tested, and demonstrated without the physical board — using an identical-contract simulator — and the transition to real hardware requires zero host-side code changes.
-
-**As of July 2026, the full hardware pipeline is operational** — FPGA board programmed, 1 Gbps Ethernet link live, silicon telemetry confirmed flowing end-to-end.
+**Status (November 2026):** the pipeline runs on real silicon. The board is programmed, the 1 Gbps link is up, and every metric on the dashboard is counted by the gateware, not by the host. The traffic fed to the board in the public demo is **synthetic** (see [Traffic modes](#traffic-modes-synthetic-vs-live)).
 
 ---
 
 ## Why FALCON
 
-GTP-U (GPRS Tunneling Protocol – User Plane, RFC 5415) is the encapsulation protocol for all mobile data traffic in 4G/5G core networks. Inspecting it at wire speed is the foundation for:
+GTP-U (GPRS Tunnelling Protocol, User plane) carries all user data in 4G/5G core networks. Reading it at wire speed supports:
 
-- **Network observability** — who is active, how many sessions (TEIDs), what protocols, what throughput
-- **Security research** — session lifecycle anomalies (unexpected Create/Delete/Modify events), protocol distribution shifts
-- **Traffic engineering** — per-TEID uplink/downlink counters, drop detection
+- **Observability:** how many sessions (TEIDs), how many packets, how much payload
+- **Security research:** session lifecycle events and protocol-mix shifts
+- **Traffic engineering:** uplink/downlink counters and drop detection
 
-Commercial DPI appliances solving this problem cost tens of thousands of dollars. FALCON validates the same capability on an accessible research-grade FPGA board (Xilinx Genesys XC5VLX50T).
-
-| Problem | FALCON Approach |
+| Problem | FALCON approach |
 |---|---|
-| GTP-U line-rate parsing saturates CPU | FPGA parses in hardware fabric; host receives only telemetry summaries (~25 KB/s) |
-| Binary telemetry is brittle — desync risk | Single byte contract shared by sender (FPGA) and receiver (backend) — structurally impossible to desync |
-| Malformed datagrams can crash the collector | Malformed-safe design: bad datagrams are skipped + counted, process stays alive |
-| Hardware not yet available during development | Identical-contract simulator → build and validate full host stack without board |
-| Need instant visibility into network state | WebSocket push: KPI, per-TEID sessions, events, protocol distribution — all live |
+| GTP-U parsing at line rate saturates a CPU | The FPGA parses in fabric. The host only receives small telemetry summaries |
+| Binary telemetry desyncs easily between sender and receiver | One byte contract, verified byte-exact by the gateware testbenches |
+| A malformed datagram can crash a collector | Bad datagrams are skipped and counted, the process stays up |
+| Hardware not available during development | Contract-identical simulator for the full host stack |
+| Need to see network state immediately | WebSocket push of KPI, sessions, events and protocol mix |
+
+---
+
+## Dashboard
+
+Live at **[falcon.arahkarya.com](https://falcon.arahkarya.com)** (public, read-only: generator control endpoints return 403).
+
+| Live telemetry | Measurement documentation |
+|---|---|
+| ![Dashboard](docs/screenshots/05-dashboard-live.png) | ![Measurement](docs/screenshots/06-measurement.png) |
+
+| Light theme | Settings |
+|---|---|
+| ![Light theme](docs/screenshots/07-light-theme.png) | ![Settings](docs/screenshots/02-settings.png) |
+
+Features: KPI cards with sparklines, packet-rate and throughput charts (with drop rate), per-TEID session table with detail modal, Top-5 sessions, protocol distribution, real-time event feed with severity, FPGA link banner (connected / disconnected), CSV and PNG export, dark/light theme, **presentation mode**, and a **Measurement** modal that documents how each number is produced and whether it is validated.
 
 ---
 
 ## Architecture
 
 ```
-                    ┌─────────────────────────────────┐
-                    │         FPGA Board               │
-                    │  Genesys XC5VLX50T (Virtex-5)   │
-                    │                                  │
-  GTP-U frames ────▶│  ┌─────────────────────────┐    │
-  UDP :2152         │  │  GTP-U DPI Gateware      │    │
-                    │  │  (VHDL)                  │    │
-                    │  │  • Parse GTP-U headers   │    │
-                    │  │  • Extract TEID / IMSI   │    │
-                    │  │  • Classify protocol     │    │
-                    │  │  • Count UL/DL packets   │    │
-                    │  │  • Detect session events │    │
-                    │  └──────────┬──────────────┘    │
-                    └─────────────┼───────────────────┘
-                                  │  Telemetry datagrams
-                                  │  UDP :50000  (0x01–0x04)
-                                  ▼
-                    ┌─────────────────────────┐
-                    │         Backend          │    aiohttp (Python async)
-                    │  • UDP listener :50000   │──────────────────────────▶ WebSocket /ws
-                    │  • Decode (contract.py)  │──────────────────────────▶ REST /api/*
-                    │  • Enrich + state        │
-                    │  • Broadcast WS (live)   │    HTTP/WS :8080
-                    └─────────────────────────┘
-                                  │
-                                  ▼
-                    ┌─────────────────────────┐
-                    │        Dashboard         │    Vanilla HTML/CSS/JS
-                    │  KPI · TEID sessions     │    No build step
-                    │  Protocol dist · Events  │    Flat navy theme
-                    └─────────────────────────┘
+                    ┌──────────────────────────────────┐
+                    │           FPGA board              │
+                    │   Genesys XC5VLX50T (Virtex-5)    │
+                    │                                   │
+ GTP-U frames ─────▶│  Ethernet MAC ─▶ UDP ─▶ DPI core  │──▶ LD0-LD7  (LED status)
+ UDP :2152          │                          │        │──▶ LCD 16x2 (live numbers)
+                    │          parse · classify · count │
+                    │                          ▼        │
+                    │              telemetry packer     │
+                    └──────────────────────────┬────────┘
+                                               │ UDP :50000  (0x01-0x04)
+                                               ▼
+                    ┌──────────────────────────────────┐
+                    │ Backend  (aiohttp, Python async)  │
+                    │  UDP listener · contract decode   │──▶ WebSocket /ws
+                    │  state · link watcher · demo gen  │──▶ REST /api/*
+                    └──────────────────────────┬────────┘
+                                               ▼
+                    ┌──────────────────────────────────┐
+                    │ Dashboard (vanilla HTML/CSS/JS)   │
+                    │  no framework, no build step      │
+                    └──────────────────────────────────┘
 ```
-
-The **byte contract** (`falcon/shared/contract.py`) is the single source of truth. Both the FPGA gateware (packing datagrams) and the backend (unpacking them) reference the same format definition. A simulator (`falcon/simulator/sim.py`) generates contract-identical telemetry for host-side development without hardware.
 
 ---
 
-## Telemetry Wire Format
+## Telemetry wire format
 
-All datagrams share a **4-byte header**, all multi-byte fields **big-endian** (network byte order).
-
-### Header (4 bytes)
+All datagrams share a **4-byte header**, all fields **big-endian**.
 
 ```
  0        1        2        3
@@ -105,318 +105,243 @@ All datagrams share a **4-byte header**, all multi-byte fields **big-endian** (n
  └────────┴────────┴────────────────┘
 ```
 
-| Field | Size | Description |
+`msg_type`: `0x01` Global, `0x02` TEID, `0x03` Event, `0x04` Protocol. `length` is the payload length, so a receiver can skip unknown future bytes.
+
+### `0x01` Global stats — 64 B, about once per second
+
+| Offset | Size | Field | Meaning |
+|---|---|---|---|
+| 0 | 4 | `ts` | Unix epoch (s) |
+| 4 | 4 | `total_imsi` | Active IMSIs |
+| 8 | 4 | `ul_pps` | Uplink packets in the last 1 s interval |
+| 12 | 4 | `dl_pps` | Downlink packets in the last 1 s interval |
+| 16 | 4 | `active_teid` | Active TEID sessions |
+| 20 | 8 | `total_bytes` | Cumulative GTP-U **payload** bytes since the bitstream was loaded |
+| 28 | 4 | `drop` | Drop count |
+| 32 | 32 | padding | zero |
+
+### `0x02` Per-TEID session — 48 B
+
+`teid` u32 · `imsi` ascii[16] · `qfi` u8 · `state` u8 (0 IDLE, 1 ACTIVE, 2 SUSPENDED) · `ul_pkts` u32 · `dl_pkts` u32 · padding.
+
+### `0x03` Session event — 32 B
+
+`event_type` u8 (1 Create, 2 Delete, 3 Modify, 4 Error) · `direction` u8 · `teid` u32 · `packet_len` u16 · `ts` u32 · padding.
+
+### `0x04` Protocol distribution — 32 B
+
+`gtp_u`, `gtp_c`, `pfcp`, `bssgp`, `other`: five `u16`. See [Known issues](#known-issues) for how the gateware fills these today.
+
+Self-test (pack → decode roundtrip): `python -m falcon.shared.contract`
+
+---
+
+## Traffic modes: synthetic vs live
+
+The gateware counts whatever arrives on UDP `:2152`. It cannot tell where a packet came from, so the **source of the traffic** is a deployment fact, not a gateware fact.
+
+| Mode | Source | How to recognise it |
 |---|---|---|
-| `msg_type` | u8 | Message type: `0x01` Global / `0x02` TEID / `0x03` Event / `0x04` Protocol |
-| `version` | u8 | Protocol version (`0x01`) |
-| `length` | u16 | Payload length in bytes |
+| **Synthetic (demo)** | The backend (`FALCON_DEMO_TRAFFIC`) or `scripts/send_gtpu.py` sends GTP-U frames from a host in the lab | Dashboard shows the **TRAFIK UJI SINTETIS** badge. All frames come from `192.168.0.101` |
+| **Live** | A tap or port mirror from a real 4G/5G network cabled to the board's Ethernet port | No synthetic badge. Leave `FALCON_DEMO_TRAFFIC` empty |
 
-The `length` field in the header makes the format extensible — a receiver can skip unknown future payload bytes safely.
-
-### `0x01` Global Stats — 64B payload, emitted every ~1 second
-
-```
- Offset  Size  Field          Type    Description
- 0       4     ts             u32     Unix epoch (seconds)
- 4       4     total_imsi     u32     Number of active IMSIs
- 8       4     ul_pps         u32     Uplink packets/second
- 12      4     dl_pps         u32     Downlink packets/second
- 16      4     active_teid    u32     Number of active TEID sessions
- 20      8     total_bytes    u64     Cumulative bytes (running counter)
- 28      4     drop           u32     Drop count
- 32      32    padding        —       Zero-padded to 64B
-```
-
-### `0x02` Per-TEID Session — 48B payload, emitted on state change + periodic
-
-```
- Offset  Size  Field      Type      Description
- 0       4     teid       u32       Tunnel Endpoint Identifier
- 4       16    imsi       ascii     IMSI string, null-padded to 16B
- 20      1     qfi        u8        QoS Flow Identifier
- 21      1     state      u8        0=IDLE · 1=ACTIVE · 2=SUSPENDED
- 22      4     ul_pkts    u32       Uplink packet count
- 26      4     dl_pkts    u32       Downlink packet count
- 30      18    padding    —         Zero-padded to 48B
-```
-
-### `0x03` Session Event — 32B payload, emitted on GTP-C signaling
-
-```
- Offset  Size  Field        Type   Description
- 0       1     event_type   u8     1=CreateSession · 2=DeleteSession · 3=ModifySession · 4=Error
- 1       1     direction    u8     0=UL · 1=DL
- 2       4     teid         u32    Associated TEID
- 6       2     packet_len   u16    Original packet length
- 8       4     ts           u32    Unix epoch
- 12      20    padding      —      Zero-padded to 32B
-```
-
-### `0x04` Protocol Distribution — 32B payload, emitted periodically
-
-```
- Offset  Size  Field   Type   Description
- 0       2     gtp_u   u16    GTP-U share × 100 (basis 10000 → divide by 100 for %)
- 2       2     gtp_c   u16    GTP-C share × 100
- 4       2     pfcp    u16    PFCP share × 100
- 6       2     bssgp   u16    BSSGP share × 100
- 8       2     other   u16    Other protocols × 100
- 10      22    padding —      Zero-padded to 32B
-```
-
-Self-test (pack → decode roundtrip):
-```bash
-python -m falcon.shared.contract
-```
+The public demo runs a synthetic burst profile (30 s active, 90 s idle, 120 pps) so the dashboard is never empty. **Numbers from the demo are test traffic.**
 
 ---
 
-## Host Stack
+## Board indicators
 
-### Backend (`falcon/backend/server.py`)
+The Genesys board shows live state without any computer. Every indicator is driven by a real signal.
 
-Single-process `asyncio` + `aiohttp`. Responsibilities:
+### LEDs (`fpga/eth/led_status.v`)
 
-- **UDP listener** on `:50000` — receives datagrams from FPGA (or simulator)
-- **Decode** using `contract.py` — malformed datagrams increment `err_count` and are skipped; process never crashes
-- **State management** — in-memory: global KPI, TEID map (with TTL expiry), event ring-buffer, protocol distribution, sparkline history
-- **IMSI enrichment** — if gateware does not supply IMSI (current stage), a deterministic synthetic IMSI is derived per-TEID (SHA1 hash → 15-digit MCC+MNC+MSIN), then anonymized: `MCC+MNC + ****** + last 3 digits`
-- **WebSocket push** — broadcasts enriched JSON frames to all connected dashboard clients on every state update
-- **REST API** — snapshot, history, per-resource endpoints (see API section)
-- **Dashboard serve** — serves `dashboard/index.html` as a static file
+| LED | Meaning |
+|---|---|
+| LD0 | Heartbeat, 1 Hz, always blinking while the gateware runs |
+| LD1 | A GTP-U packet was accepted (stretched pulse) |
+| LD2 | A telemetry datagram was sent |
+| LD3 | An Ethernet frame was received |
+| LD4–LD7 | Load bar: ≥1, ≥100, ≥1 000, ≥10 000 GTP-U packets/s |
 
-### Dashboard (`falcon/dashboard/index.html`)
+### LCD 16×2 (`fpga/eth/lcd_status.v`)
 
-Vanilla HTML/CSS/JS — no framework, no build step, no dependencies. Connects to the backend WebSocket and renders:
+Line 1 is always `FALCON UL <pps>`. Line 2 rotates every 3 s through four pages:
 
-- **KPI cards** — IMSI count, uplink/downlink pps, active TEIDs, drop count, throughput — with sparkline mini-charts
-- **TEID session table** — search by TEID/IMSI, filter by QFI, sort any column, click row for full session detail modal
-- **Protocol distribution** — horizontal bar chart (gtp_u · gtp_c · pfcp · bssgp · other)
-- **Event feed** — real-time session lifecycle events (Create/Modify/Delete/Error) with per-type counters
-- **FPGA telemetry log** — raw datagram log (type, length, TEID, first 16B hex)
-- **Configurable alarms** — threshold-based KPI flash (drop / UL pps / DL pps / error) with optional audio
-- **Settings** — all persisted in `localStorage` (per-device, no backend writes): TTL, row limits, panel toggles, compact mode, sparklines
+```
+Rate 0000.28Mbps     payload rate, 2 decimals
+Tot 0000289440 B     cumulative payload bytes
+Pkt 000000009120     cumulative GTP-U packets
+Up   00:03:12        uptime since bitstream load
+```
 
-### Simulator (`falcon/simulator/sim.py`)
-
-Generates all four telemetry message types with realistic values (session lifecycle, traffic counters, protocol mix) using the same `contract.py` format. Useful for:
-
-- Full host-stack development without hardware
-- CI/regression testing
-- Demo environments
-
-To switch from simulator to real FPGA: stop the simulator, point the FPGA to send UDP to `:50000`. Zero host-side changes required.
+The LCD has **no backlight**; read it under room light and adjust the contrast trimmer if the text is faint. The interface is **write-only**: `R/W` is tied low and no pin is ever an input from the 5 V LCD, so the FPGA is never driven by it. Pins come from the Genesys Reference Manual (Bank 18).
 
 ---
 
-## FPGA Gateware
+## FPGA gateware
 
-**Target:** Xilinx Virtex-5 XC5VLX50T (Genesys development board)
-**Language:** VHDL
-**Toolchain:** Xilinx ISE 14.7
-**Programmer:** `xc3sprog` + Xilinx Platform Cable USB II (`03fd:0008`)
+**Target:** Xilinx Virtex-5 XC5VLX50T (Digilent Genesys) · **Toolchain:** ISE 14.7 · **Simulation:** GHDL and Icarus Verilog
 
-The gateware implements:
+| Block | File | Function |
+|---|---|---|
+| Ethernet / UDP | `fpga/eth/fpga_core.v` + `v5io/` | MAC, ARP, UDP on the Genesys GMII PHY (IP `192.168.0.20`) |
+| GTP-U parser | `fpga/rtl/gtpu_parser.vhd` | Ethernet → IPv4 → UDP → GTP-U, extracts TEID, counts payload bytes |
+| Classifier | `fpga/rtl/protocol_classifier.vhd` | Class by UDP port |
+| Stats | `fpga/rtl/stats_counter.vhd` | Per-interval pps, total bytes, drops |
+| Packer | `fpga/rtl/telemetry_packer.vhd` | Builds `0x01`–`0x04` datagrams, byte-exact to the contract |
+| Top | `fpga/rtl/falcon_top.vhd` | Integration and emit arbiter |
+| Indicators | `fpga/eth/led_status.v`, `lcd_status.v` | LEDs and LCD |
 
-1. **Ethernet MAC** — receive frames on the Genesys TEMAC interface
-2. **GTP-U parser** — strip Ethernet + IP + UDP headers (42B), parse GTP-U header, extract TEID
-3. **Protocol classifier** — identify inner protocol (GTP-U / GTP-C / PFCP / BSSGP / other)
-4. **Session tracker** — maintain per-TEID counters (UL/DL packets, state)
-5. **Event detector** — detect Create/Delete/Modify/Error from GTP-C signaling
-6. **Telemetry packer** — assemble contract-compliant UDP datagrams and emit to host `:50000`
-
-The gateware testbench validates byte-exact contract compliance against `contract.py` outputs.
-
-**Programming the board:**
+### Simulate
 
 ```bash
-# Verify JTAG chain (requires Xilinx Platform Cable USB II)
-sudo xc3sprog -c xpc -j
-# Expected: IDCODE: 0xc2a96093  Desc: XC5VLX50T Rev: M
+fpga/sim/run_all.sh              # packer byte-exact + parser (GHDL)
+fpga/sim/run_imsi_test.sh        # IMSI parsing, 8/8 TEID
+fpga/sim/run_rate_clear.sh       # ul_pps is per-second, not cumulative
 
-# Load bitstream (volatile — bitstream lives in SRAM, reloads on power-off)
-sudo xc3sprog -c xpc fpga/eth/build/genesys_fpga.bit
+cd fpga/eth
+iverilog -g2012 -o /tmp/led tb_led_status.v led_status.v && vvp /tmp/led
+iverilog -g2012 -o /tmp/lcd tb_lcd_status.v lcd_status.v && vvp /tmp/lcd
+```
 
-# Restore host Ethernet interface (static IP on enp2s0)
+`tb_lcd_status` models an HD44780 controller and checks the init sequence, minimum delays between instructions, `E` pulse width, `R/W` low, and the rendered DDRAM contents.
+
+### Build and program
+
+```bash
+# Synthesis (ISE 14.7). Edit WORK in the script to a private build folder first.
+bash fpga/eth/build_eth_ise.sh        # -> <WORK>/genesys_fpga.bit
+
+# Program over JTAG (Platform Cable USB II) with iMPACT in batch mode,
+# then restore the host address
+impact -batch prog.cmd
 sudo ip addr add 192.168.0.101/24 dev enp2s0
 ```
 
-> **Note:** `djtgcfg` and Xilinx iMPACT do not work for this board/cable combination (parallel port mismatch / no devices found). Use `xc3sprog -c xpc` exclusively.
+The bitstream is **volatile** (SRAM): it is lost at power-off. Flashing it to the board PROM is on the roadmap. Build outputs are git-ignored; the `.bit` is not stored in this repo.
 
-> Bitstream is volatile — for persistent programming, flash to the board's SPI/PROM using `xc3sprog -c xpc -I` (roadmap).
+### Fixes validated on hardware
 
----
-
-## Network Topology
-
-```
-┌─────────────────────────┐         ┌──────────────────────┐
-│  Host (Linux)           │         │  FPGA Board          │
-│  enp2s0: 192.168.0.101  │◀───────▶│  Genesys XC5VLX50T   │
-│                         │ 1 Gbps  │  GTP-U DPI Gateware  │
-│  Backend :50000 (listen)│◀────────│  emit UDP :50000      │
-│  Backend :8080  (serve) │         │  MAC: 02:00:00:00:00:20│
-│  Dashboard (browser)    │         │  IP:  192.168.0.20    │
-└─────────────────────────┘         └──────────────────────┘
-```
-
-| Direction | Port | Protocol | Description |
-|---|---|---|---|
-| Host → FPGA | UDP `2152` | GTP-U | Packet injection (generator → board) |
-| FPGA → Host | UDP `50000` | Custom | Telemetry stream (4 datagram types) |
-| Host (serve) | TCP `8080` | HTTP/WS | Dashboard + REST + WebSocket |
+| Issue | Cause | Fix |
+|---|---|---|
+| `ul_pps` grew without bound | `rate_clear` was hard-wired to `'0'` | Clear on the 1 s emit; regression `tb_rate_clear` |
+| `total_bytes` always 0 | `r_ulen` was never assigned in the parser | Count the actual AXIS payload bytes |
+| LEDs showed the first byte of the last datagram | Debug leftover | Replaced by the real-signal indicators above |
 
 ---
 
-## REST API
+## Backend
+
+`falcon/backend/server.py`: one `asyncio` + `aiohttp` process.
+
+- UDP listener on `:50000`, decode via `contract.py`; malformed datagrams are counted, never fatal
+- In-memory state: global KPI, TEID map with TTL, event ring buffer, protocol mix, history
+- Derived values: `bps`, `drop_rate`, event severity, FPGA link status (connected if a datagram arrived recently)
+- Synthetic IMSI per TEID when the gateware does not supply one, masked as `MCC+MNC ****** last3`
+- WebSocket push and REST API
+- Optional demo traffic task (`FALCON_DEMO_TRAFFIC=burst:ON:OFF:PPS`)
+
+### Environment
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `FALCON_UDP_PORT` | `50000` | Telemetry listener |
+| `FALCON_HTTP_PORT` | `8080` | Dashboard, REST, WebSocket |
+| `FALCON_MODE` | `live` | `live` (real board) or `sim` (simulator banner) |
+| `FALCON_PUBLIC` | `0` | `1` = reject `POST /api/generator/*` with 403 |
+| `FALCON_DEMO_TRAFFIC` | empty | `burst:30:90:120` = 30 s on, 90 s off, 120 pps. Empty = off |
+| `FALCON_DEMO_TARGET` | `192.168.0.20:2152` | Where the demo traffic is sent |
+
+### REST API
 
 | Endpoint | Method | Description |
 |---|---|---|
-| `/api/health` | GET | Status, uptime seconds, msg count, err count |
+| `/api/health` | GET | Status, uptime, message and error counts |
+| `/api/version` | GET | Name, version, ports, mode |
+| `/api/link` | GET | FPGA link status and age of the last datagram |
 | `/api/stats/global` | GET | Latest global KPI (`0x01`) |
-| `/api/stats/teid` | GET | Active TEID session array (`0x02`) |
-| `/api/events` | GET | Last N events (`0x03`), `?limit=N` |
-| `/api/events/counter` | GET | Event count per type |
+| `/api/stats/teid` | GET | Active TEID sessions (`0x02`) |
 | `/api/stats/protocol` | GET | Protocol distribution (`0x04`) |
-| `/api/history` | GET | ~120-point ring buffer (sparkline data) |
-| `/api/snapshot` | GET | Full current state in one response |
-| `/api/version` | GET | Name, version, configured ports |
-| `/api/generator/status` | GET | Generator running state + PID |
-| `/api/generator/start` | POST | Start GTP-U packet generator |
-| `/api/generator/stop` | POST | Stop generator |
+| `/api/events` | GET | Recent events, `?limit=N` |
+| `/api/events/counter` | GET | Event count per type |
+| `/api/history` | GET | History for charts, `?window=` |
+| `/api/snapshot` | GET | Full state in one response |
+| `/api/measure` | GET | How each metric is measured and its validation status |
+| `/api/demo` | GET | Demo traffic state |
+| `/api/rawlog` | GET | Raw datagram log |
+| `/api/generator/status` · `start` · `stop` | GET / POST / POST | Packet generator control (blocked when `FALCON_PUBLIC=1`) |
 
-**WebSocket** `ws://<host>:8080/ws` — JSON frames; initial snapshot on connect, then per-update push.
-
-```jsonc
-// Per-TEID frame
-{
-  "type": "teid",
-  "data": {
-    "teid": "0xC1A6B1F1",
-    "imsi": "51011******395",   // anonymized: MCC+MNC + ****** + last 3
-    "qfi": 0,
-    "state": "ACTIVE",
-    "ul_pkts": 25241983,
-    "dl_pkts": 0
-  }
-}
-
-// Session event frame
-{
-  "type": "event",
-  "data": {
-    "event": "CreateSession",
-    "direction": "UL",
-    "teid": "0x387D06CA",
-    "packet_len": 312,
-    "ts": 1784021469
-  },
-  "counter": { "CreateSession": 12, "ModifySession": 0, "DeleteSession": 0, "Error": 0 }
-}
-```
+`ws://<host>:<port>/ws` sends a snapshot on connect, then per-update frames.
 
 ---
 
 ## Quickstart
 
-### With real FPGA board
+### With the real board
 
 ```bash
-# 1. Program the board (one-time per power cycle)
-sudo xc3sprog -c xpc fpga/eth/build/genesys_fpga.bit
-sudo ip addr add 192.168.0.101/24 dev enp2s0
-
-# 2. Start backend (systemd service, auto-starts on boot)
-sudo systemctl start falcon-be.service
-sudo systemctl status falcon-be.service
-
-# 3. Start GTP-U packet generator
-python3 scripts/send_gtpu.py 40000 12000   # 40K packets @ 12K pps
-
-# 4. Open dashboard
-# → http://<host-ip>:8080/
+# 1. Program the board and restore the host address (see "Build and program")
+# 2. Backend
+cd falcon/backend && python3 server.py          # or: systemctl start falcon-be
+# 3. Feed it traffic: synthetic test traffic from this host ...
+python3 scripts/send_gtpu.py 40000 12000        # 40 000 packets at 12 000 pps
+#    ... or cable a real GTP-U tap into the board's Ethernet port
 curl -s http://localhost:8080/api/health
 ```
 
-### With simulator (no hardware required)
+### Without hardware
 
 ```bash
-# Install
-python3 -m venv .venv && source .venv/bin/activate
-pip install aiohttp
-
-# Terminal 1 — backend
-python -m falcon.backend.server
-
-# Terminal 2 — simulator (FPGA emulator, identical byte contract)
-python -m falcon.simulator.sim
-
-# Open dashboard → http://127.0.0.1:8080/
+python3 -m venv .venv && source .venv/bin/activate && pip install aiohttp
+python -m falcon.backend.server               # terminal 1
+python -m falcon.simulator.sim                # terminal 2 (same byte contract)
+# open http://127.0.0.1:8080/
 ```
 
 ---
 
-## Repository Layout
+## Repository layout
 
 ```
 falcon/
-├── README.md
-├── LICENSE                         MIT
-├── INTEGRATION.md                  FPGA ↔ host byte layout, cutover guide
+├── README.md · LICENSE · INTEGRATION.md
 ├── falcon/
-│   ├── shared/
-│   │   └── contract.py             Byte contract 0x01–0x04 (single source of truth)
-│   ├── simulator/
-│   │   └── sim.py                  FPGA emulator — generates all 4 telemetry types
-│   ├── backend/
-│   │   └── server.py               aiohttp: UDP + WebSocket + REST + static serve
-│   └── dashboard/
-│       └── index.html              Real-time UI (vanilla, no build step)
+│   ├── shared/contract.py        byte contract 0x01-0x04 (source of truth)
+│   ├── simulator/sim.py          contract-identical emulator
+│   ├── backend/server.py         UDP + WebSocket + REST + static
+│   └── dashboard/                index.html (single file) + logo assets
 ├── fpga/
-│   └── eth/
-│       ├── genesys_fpga.v          GTP-U DPI gateware (VHDL)
-│       ├── genesys_eth.ucf         Pin constraints (Genesys board)
-│       └── build/
-│           └── genesys_fpga.bit    Synthesized bitstream (XC5VLX50T)
-├── scripts/
-│   ├── send_gtpu.py                Inject GTP-U frames to board via UDP :2152
-│   ├── gen_loop.sh                 Continuous injection loop
-│   └── falcon-gen                  Generator control script (start/stop/status)
-└── docs/
-    ├── BRD-FALCON.md               Business requirements
-    ├── PRD-FALCON.md               Product requirements (byte spec, API, AC)
-    └── DOKUMENTASI-FALCON.md       Technical documentation (Indonesian)
+│   ├── rtl/                      DPI core (VHDL)
+│   ├── eth/                      Ethernet/UDP, LED and LCD indicators (Verilog), UCF, build script
+│   ├── tb/  sim/                 testbenches, golden vectors, run scripts
+│   └── constraints/              pin notes
+├── scripts/                      send_gtpu.py · gen_loop.sh · falcon-gen
+├── deploy/                       falcon-be.service
+└── docs/                         BRD, PRD, DOKUMENTASI (Indonesian), screenshots
 ```
 
 ---
 
-## Live System Status (July 2026)
+## Known issues
 
-The full end-to-end pipeline has been verified with real silicon:
+These are open and visible on the live dashboard today.
 
-| Layer | State | Detail |
-|---|---|---|
-| FPGA gateware | ✅ Running | Bitstream programmed via `xc3sprog -c xpc` |
-| Ethernet link | ✅ 1 Gbps Full | Host `enp2s0` ↔ board, ARP resolved |
-| Board MAC | ✅ Active | `02:00:00:00:00:20` visible on wire (tcpdump confirmed) |
-| Telemetry stream | ✅ Flowing | Board emitting to UDP `:50000`, `err_count = 0` |
-| Backend | ✅ Live | `msg_count` climbing, `falcon-be.service` active |
-| TEID sessions | ✅ 12 active | All `ACTIVE` state, UL packet counters climbing |
-| IMSI anonymization | ✅ Active | `51011******XXX` — deterministic per-TEID, middle masked |
-| Protocol distribution | ✅ All 5 panels | gtp_u · gtp_c · pfcp · bssgp · other |
-| Dashboard | ✅ Live | `http://100.77.16.127:8080` (Tailscale), `falcon.arahkarya.com` (public) |
-
-**Observed throughput:** 800K – 25M+ packets/second (uplink), zero parse errors.
+1. **Protocol distribution is not a percentage yet.** The gateware sends the raw 16-bit packet count of each class (`lo16(count)`) in `0x04`, while the host divides it by 100 as if it were a percentage ×100. With real traffic the donut can read more than 100 % (for example `gtp_u` 358 %). The fix is to normalise in the gateware or in the backend using the sum of the five counters.
+2. **Active IMSI and Active TEID KPI can read 0** while the session table is filled. The top-level KPI counters (`total_imsi`, `active_teid`) are not yet driven from the session table.
+3. **Downlink path is not implemented.** The board counts uplink only, so `dl_pps` is 0.
+4. **IMSI is synthetic.** Real IMSI extraction from GTP-C/NAS is not in the gateware.
+5. **Bitstream is volatile.** It must be reloaded after every power cycle.
 
 ---
 
 ## Roadmap
 
-- **Real IMSI extraction** — parse IMSI from GTP-C / NAS messages in gateware (currently derived synthetically per-TEID on host side)
-- **Multi-protocol silicon capture** — gtp_c / pfcp / bssgp from real wire traffic (currently representative distribution on host side)
-- **Persistent bitstream** — flash gateware to SPI/PROM so board survives power cycles without reprogramming
-- **tshark correlation** — capture GTP-U on `:2152` (input) and `:50000` (telemetry output), correlate TEID input == output as proof-of-parse from silicon
-- **Downlink path** — board currently parses uplink only; DL pipeline planned
+- Fix the protocol percentage and the IMSI/TEID KPI counters (issues 1 and 2)
+- Persist the bitstream to the board PROM and make the host address `192.168.0.101` persistent
+- `SIM` / `LIVE` / `IDLE` status on the LCD, from the packet source
+- tshark correlation: capture `:2152` in and `:50000` out and compare TEIDs as proof of parsing in silicon
+- Downlink path, real IMSI extraction, multi-protocol capture (GTP-C, PFCP, BSSGP)
+- Per-session detail view in the dashboard
 
 ---
 
@@ -424,18 +349,18 @@ The full end-to-end pipeline has been verified with real silicon:
 
 | Layer | Technology |
 |---|---|
-| Gateware | VHDL · Xilinx ISE 14.7 · Virtex-5 XC5VLX50T |
+| Gateware | VHDL · Verilog · Xilinx ISE 14.7 · Virtex-5 XC5VLX50T |
+| Simulation | GHDL · Icarus Verilog |
 | Backend | Python 3.13 · asyncio · aiohttp · WebSocket |
 | Frontend | Vanilla HTML/CSS/JS · no framework · no build step |
-| Programmer | xc3sprog · Xilinx Platform Cable USB II |
-| Deployment | systemd service · Cloudflare tunnel |
-| State | In-memory (PoC) · no external database |
+| Deployment | systemd · Cloudflare tunnel |
+| State | In-memory (proof of concept) · no database |
 
 ---
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT, see [LICENSE](LICENSE).
 
 ---
 
