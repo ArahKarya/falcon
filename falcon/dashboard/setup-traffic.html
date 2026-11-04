@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FALCON · Setup Traffic</title>
+<link rel="icon" type="image/png" sizes="32x32" href="/static/favicon-32.png">
+<link rel="stylesheet" href="/static/setup.css">
+</head>
+<body>
+<div class="wrap">
+  <div id="hdr"></div>
+
+  <h2 class="page">Setup Traffic</h2>
+  <p class="lead">Board menghitung paket GTP-U yang <b>sampai</b> ke port Ethernet-nya, tanpa tahu asalnya. Halaman ini menunjukkan
+    <b>dari mana trafik itu berasal</b> dan bagaimana menyambungkannya ke antarmuka jaringan Anda.</p>
+
+  <div class="panel">
+    <h3>Jalur trafik <span class="tag" id="modetag">—</span></h3>
+<pre class="diagram">  [ Sumber trafik ]                              [ Papan FPGA ]                [ Host ]
+  ───────────────                              ──────────────                ────────
+  Sintetis  : backend kirim GTP-U uji ───┐
+  Stack 5G  : Open5GS+srsRAN+UERANSIM ───┼──► Ethernet  192.168.0.20 :2152 ──► telemetri UDP :50000 ──► dashboard
+  Live      : mirror/TAP jaringan nyata ─┘      (hitung & parse di silikon)</pre>
+    <div class="note info" id="whereto">—</div>
+  </div>
+
+  <div class="panel">
+    <h3>Pilih sumber</h3>
+    <div class="grid3" id="sources"></div>
+  </div>
+
+  <div class="panel" id="synthpanel">
+    <h3>Trafik sintetis <span class="tag" id="synstate">—</span></h3>
+    <div class="row">
+      <div><label>Laju (paket/dtk)</label><input type="number" id="pps" min="1" max="5000" value="120"></div>
+      <div><label>Aktif (detik)</label><input type="number" id="on" min="1" max="3600" value="30"></div>
+      <div><label>Jeda (detik, 0 = terus-menerus)</label><input type="number" id="off" min="0" max="3600" value="90"></div>
+    </div>
+    <div id="ctl">
+      <button class="btn" id="bstart">Mulai</button>
+      <button class="btn stop" id="bstop">Hentikan</button>
+    </div>
+    <div class="msg" id="msg"></div>
+    <div class="kv" style="margin-top:12px;font-family:'JetBrains Mono',monospace;font-size:11.5px;color:#b6c6da" id="demokv">—</div>
+  </div>
+
+  <div class="panel">
+    <h3>Menyambungkan ke antarmuka jaringan Anda (Live)</h3>
+    <table>
+      <tr><th style="width:26%">Langkah</th><th>Keterangan</th></tr>
+      <tr><td>1. Hentikan sumber lain</td><td>Hentikan trafik sintetis dan stack 5G agar angka di dashboard hanya berasal dari jaringan Anda.</td></tr>
+      <tr><td>2. Buat salinan trafik</td><td>Pasang <b>port mirror/SPAN</b> pada switch atau <b>network TAP</b> pada link S1-U / N3 yang membawa GTP-U (UDP 2152).</td></tr>
+      <tr><td>3. Colok ke papan</td><td>Hubungkan port mirror ke port Ethernet papan FPGA (1 Gbps). Papan <b>hanya menerima</b> dan tidak meneruskan paket, jadi tidak mengganggu link produksi.</td></tr>
+      <tr><td>4. Perhatikan alamat</td><td>Papan menjawab ARP di <code>192.168.0.20</code>. Paket yang tujuannya bukan alamat itu tetap dihitung bila sampai ke MAC-nya; pastikan mirror mengirim frame ke port yang tepat.</td></tr>
+      <tr><td>5. Verifikasi</td><td>Buka <a href="/">Dashboard</a>: lencana <b>TRAFIK UJI SINTETIS</b> harus hilang dan <code>Uplink</code> naik sesuai trafik jaringan.</td></tr>
+    </table>
+    <div class="note">Jangan jalankan sumber sintetis bersamaan dengan trafik live: angka akan tercampur dan tidak lagi mencerminkan jaringan nyata.</div>
+  </div>
+</div>
+<script src="/static/nav.js"></script>
+<script>
+const esc = s => String(s==null?'—':s).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const SRC = {ready:['ok','Siap'], manual:['warn','Manual'], 'not-installed':['off','Belum terpasang'], running:['ok','Berjalan'], stopped:['off','Berhenti'], error:['bad','Galat']};
+let isOp = false;
+document.addEventListener('falcon-ready', ()=>{ isOp = (window.FALCON_ROLE==='operator'); applyRole(); load(); });
+function applyRole(){
+  document.getElementById('ctl').style.display = isOp ? '' : 'none';
+  if (!isOp) { const m=document.getElementById('msg'); m.className='msg'; m.textContent='Akun Anda berperan viewer: hanya dapat melihat, tidak dapat mengubah trafik.'; }
+}
+async function load(){
+  const j = await (await fetch('/api/setup/traffic')).json();
+  const d = j.demo;
+  document.getElementById('whereto').innerHTML = 'Trafik sintetis dikirim backend ke <code>'+esc(j.target)+'</code> (GTP-U UDP 2152 pada papan).';
+  document.getElementById('sources').innerHTML = j.sources.map(s=>{
+    const [c,l] = SRC[s.status]||['off',s.status];
+    return '<div class="card"><div class="t">'+esc(s.name)+'<span class="tag '+c+'">'+l+'</span></div><div class="d">'+esc(s.desc)+'</div></div>';
+  }).join('');
+  const st = document.getElementById('synstate');
+  st.className = 'tag '+(d.enabled?'ok':'off'); st.textContent = d.enabled ? (d.active?'mengirim':'jeda') : 'mati';
+  const mt = document.getElementById('modetag');
+  mt.className = 'tag '+(d.enabled?'warn':'ok'); mt.textContent = d.enabled ? 'sintetis aktif' : 'tidak ada sumber sintetis';
+  document.getElementById('demokv').innerHTML = '<b>Terkirim</b> '+d.sent.toLocaleString('id-ID')+' paket'+(d.enabled?' · profil '+d.on_s+' dtk aktif / '+d.off_s+' dtk jeda @ '+d.pps+' pps':'');
+}
+async function post(url, body){
+  const m = document.getElementById('msg'); m.className='msg'; m.textContent='…';
+  const r = await fetch(url, {method:'POST', headers:{'content-type':'application/json'}, body: body?JSON.stringify(body):undefined});
+  const j = await r.json();
+  m.className = 'msg '+(j.ok?'ok':'err'); m.textContent = j.ok ? 'Berhasil.' : (j.error||'Gagal');
+  load();
+}
+document.getElementById('bstart').onclick = ()=> post('/api/traffic/start', {pps:+pps.value, on_s:+on.value, off_s:+off.value});
+document.getElementById('bstop').onclick  = ()=> post('/api/traffic/stop');
+setInterval(()=>{ if (window.FALCON_ROLE) load(); }, 3000);
+</script>
+</body>
+</html>

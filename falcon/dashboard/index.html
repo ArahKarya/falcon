@@ -252,6 +252,7 @@
     <div class="status">
       <span class="linkbadge" id="linkbadge"><i></i><span id="linktxt">FPGA —</span></span>
       <span class="conn-wrap"><span class="dot" id="dot"></span><span id="conn">menyambung…</span></span>
+      <a class="hbtn" id="btn-setup" href="/setup/traffic" title="Setup FPGA &amp; trafik (operator)" style="text-decoration:none">🔑</a>
       <span class="hbtn" id="btn-gen" title="Start / Stop generator GTP-U">▶</span>
       <span class="hbtn" id="btn-measure" title="Tentang pengukuran (arti tiap angka & keterbatasan)">ⓘ</span>
       <span class="hbtn" id="btn-theme" title="Tema terang / gelap">◐</span>
@@ -665,6 +666,13 @@ function toggleGen(){
   }).catch(()=>{ genBusy=false; pollGen(); });
 }
 if($('btn-gen')) $('btn-gen').onclick=toggleGen;
+// Kontrol generator & tautan Setup hanya untuk operator yang login; pengunjung publik hanya melihat.
+fetch('/api/me').then(r=>r.json()).then(j=>{
+  var op = j.logged_in && j.role==='operator';
+  if(!op && $('btn-gen')) $('btn-gen').style.display='none';
+  if($('btn-setup')) $('btn-setup').title = j.logged_in ? 'Setup FPGA & trafik' : 'Masuk sebagai operator';
+  if($('btn-setup') && !j.logged_in) $('btn-setup').href = '/login';
+}).catch(()=>{});
 pollGen();
 setInterval(()=>{ if(!window.__noGen) pollGen(); }, 4000);
 

@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FALCON · Setup FPGA</title>
+<link rel="icon" type="image/png" sizes="32x32" href="/static/favicon-32.png">
+<link rel="stylesheet" href="/static/setup.css">
+</head>
+<body>
+<div class="wrap">
+  <div id="hdr"></div>
+
+  <h2 class="page">Setup FPGA</h2>
+  <p class="lead">FALCON dibangun sebagai <b>inti DPI yang sama</b> di atas <b>satu kontrak byte</b>. Yang berbeda antar papan hanya lapisan Ethernet,
+    pin, dan clock. Karena itu platform ini bisa dikembangkan ke jenis FPGA lain tanpa mengubah backend atau dashboard.</p>
+
+  <div class="panel">
+    <h3>Perangkat aktif <span class="tag ok" id="act-tag">—</span></h3>
+    <div class="grid2">
+      <div>
+        <div class="stat"><span class="dot" id="ldot"></span><span id="ltxt">memeriksa…</span></div>
+        <div class="card" style="margin-top:12px" id="actcard"></div>
+      </div>
+      <div class="card">
+        <div class="t">Status koneksi</div>
+        <div class="kv" id="linkkv">—</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h3>Arsitektur lintas FPGA</h3>
+<pre class="diagram">┌ dipakai ulang di SEMUA papan ────────────────────────────────────────────┐
+│ gtpu_parser → protocol_classifier → stats_counter → telemetry_packer     │
+└──────────────────────────────────────────────────────────────────────────┘
+                                     │
+                                     ▼  kontrak byte 0x01–0x04 (big-endian)
+                                     │
+┌ khusus per papan ────────────────────────────────────────────────────────┐
+│ Ethernet MAC/PHY  ·  pin (UCF/XDC)  ·  clock/PLL                         │
+└──────────────────────────────────────────────────────────────────────────┘
+                                     │
+                                     ▼  UDP :<span id="udpport">50000</span>
+                                     Backend + Dashboard  (tidak berubah)</pre>
+    <div class="grid2" style="margin-top:12px">
+      <div class="card"><div class="t">Dipakai ulang</div><div class="d" id="shared">—</div></div>
+      <div class="card"><div class="t">Perlu disesuaikan per papan</div><div class="d" id="specific">—</div></div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h3>Profil perangkat</h3>
+    <div class="grid2" id="profiles"></div>
+    <div class="note info">Hanya <b>Genesys Virtex-5</b> yang sudah dibangun dan diuji di silikon. Profil lain ditandai <b>direncanakan</b>:
+      belum ada gateware-nya dan tidak akan dianggap berfungsi sebelum diporting dan diuji.</div>
+  </div>
+</div>
+<script src="/static/nav.js"></script>
+<script>
+const esc = s => String(s==null?'—':s).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const STAT = {supported:['ok','Didukung'], planned:['warn','Direncanakan']};
+document.addEventListener('falcon-ready', load);
+async function load(){
+  const j = await (await fetch('/api/setup/fpga')).json();
+  document.getElementById('udpport').textContent = j.udp_port;
+  const act = j.profiles.find(p=>p.id===j.active);
+  document.getElementById('act-tag').textContent = act.name;
+  document.getElementById('actcard').innerHTML =
+    '<div class="t">'+esc(act.name)+'<span class="tag ok">aktif</span></div><div class="d">'+esc(act.note)+'</div>'+
+    '<div class="kv"><b>Chip</b> '+esc(act.chip)+'<br><b>Toolchain</b> '+esc(act.toolchain)+'<br><b>PHY</b> '+esc(act.phy)+'<br><b>IP papan</b> '+esc(act.ip)+'</div>';
+  const lk = j.link||{};
+  document.getElementById('ldot').className = 'dot'+(lk.connected?' on':'');
+  document.getElementById('ltxt').textContent = lk.connected ? 'FPGA terhubung' : 'FPGA tidak terhubung';
+  document.getElementById('linkkv').innerHTML = '<b>Datagram terakhir</b> '+(lk.last_rx_age!=null?lk.last_rx_age+' dtk lalu':'—')+
+    '<br><b>Port telemetri</b> UDP '+j.udp_port+'<br><b>Kontrak</b> tipe '+j.contract.types.map(t=>'0x0'+t).join(', ')+', header '+j.contract.header_bytes+' B, '+j.contract.endian+'-endian';
+  document.getElementById('shared').innerHTML = j.shared_core.map(x=>'<code>'+esc(x)+'</code>').join(' ');
+  document.getElementById('specific').innerHTML = j.port_specific.map(x=>'• '+esc(x)).join('<br>');
+  document.getElementById('profiles').innerHTML = j.profiles.map(p=>{
+    const [c,l] = STAT[p.status]||['off',p.status];
+    return '<div class="card'+(p.id===j.active?' sel':'')+'"><div class="t">'+esc(p.name)+'<span class="tag '+c+'">'+l+'</span></div>'+
+      '<div class="d">'+esc(p.note)+'</div><div class="kv"><b>Chip</b> '+esc(p.chip)+'<br><b>Toolchain</b> '+esc(p.toolchain)+'<br><b>PHY</b> '+esc(p.phy)+'</div></div>';
+  }).join('');
+}
+setInterval(()=>{ if (window.FALCON_ROLE) load(); }, 5000);
+</script>
+</body>
+</html>
