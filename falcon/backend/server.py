@@ -71,7 +71,7 @@ state = {
 TYPE_NAMES = {0x01: "GLOBAL", 0x02: "TEID", 0x03: "EVENT", 0x04: "PROTOCOL"}
 _raw_seq = [0]
 VERSION = "1.2.0"
-TEID_TTL = 15  # detik; sesi tak update dianggap mati
+TEID_TTL = int(os.environ.get("FALCON_TEID_TTL", "15"))  # detik; sesi tak update dianggap mati
 ws_clients = set()
 
 
@@ -97,6 +97,31 @@ GTPU_MSG_NAMES = {"1": "EchoRequest", "2": "EchoResponse", "26": "ErrorIndicatio
                   "254": "EndMarker", "255": "G-PDU"}
 DROP_WARN_PCT = 1.0
 DROP_CRIT_PCT = 5.0
+
+
+# ---- KPI sesi & label IMSI simulasi -------------------------------------------------------------
+# Gateware belum mengisi total_imsi / active_teid (Fase 2: butuh session table + parser GTP-C). Backend mengisi:
+#  * active_teid  = jumlah TEID yang MASIH hidup di tabel (sampel gateware, 1 datagram TEID per 64 paket). Nyata, tapi sampel.
+#  * IMSI         = label FIKTIF per TEID, HANYA saat sumber trafik buatan (demo/simulator). Pada trafik live tidak ada
+#                   IMSI karangan: tanpa gateware, nilainya tetap kosong/0. Nilai dari gateware selalu menang.
+# Prefiks 001-01 = PLMN uji resmi (ITU), tak mungkin milik operator nyata.
+SYNTH_PLMN = "00101"
+
+
+def synthetic_source_active() -> bool:
+    return MODE == "sim" or bool(demo.get("enabled"))
+
+
+def synth_imsi(teid) -> str:
+    """IMSI fiktif 15 digit, deterministik per TEID (stabil antar-restart), prefiks PLMN uji."""
+    import hashlib
+    h = int(hashlib.sha1(str(teid).encode()).hexdigest(), 16)
+    return SYNTH_PLMN + str(h % 10**10).zfill(10)
+
+
+def _has_real_imsi(v) -> bool:
+    s = str(v or "").strip()
+    return bool(s) and set(s) != {"0"}
 
 
 def derive_rates(g: dict, ts: int):
@@ -137,6 +162,15 @@ def update_state(msg: dict):
         ts = msg.get("ts") or int(time.time())
         bps, ddrop, drop_rate = derive_rates(msg["data"], ts)
         msg["data"].update({"bps": round(bps), "drop_delta": ddrop, "drop_rate": round(drop_rate, 3)})
+        # KPI sesi: tulis ke msg["data"] juga supaya WebSocket & REST sama (pelajaran donut protokol)
+        expire_teids()
+        alive = list(state["teid"].values())
+        if not msg["data"].get("active_teid"):
+            msg["data"]["active_teid"] = len(alive)
+            msg["data"]["active_teid_derived"] = True
+        if not msg["data"].get("total_imsi") and synthetic_source_active():
+            msg["data"]["total_imsi"] = len({d.get("imsi") for d in alive if d.get("imsi_synthetic")})
+            msg["data"]["imsi_synthetic"] = True
         g = {**msg["data"], "ts": ts}
         state["global"] = g
         if drop_rate >= DROP_CRIT_PCT:
@@ -159,6 +193,11 @@ def update_state(msg: dict):
         state["protocol"] = {**msg["data"], "ts": msg.get("ts", int(time.time()))}
     elif t == "teid":
         d = msg["data"]; d["_seen"] = time.time()
+        if _has_real_imsi(d.get("imsi")):
+            d["imsi_synthetic"] = False
+        elif synthetic_source_active():
+            d["imsi"] = synth_imsi(d["teid"])
+            d["imsi_synthetic"] = True
         state["teid"][d["teid"]] = d
     elif t == "event":
         ev = {**msg["data"], "ts": msg.get("ts")}
@@ -446,12 +485,12 @@ async def api_measure(r):
          "note": "Paket GTP-U yang diterima gateware per interval emit 1 detik (counter di-reset tiap emit 0x01)."},
         {"k": "total_bytes", "name": "Throughput GTP-U (payload)", "unit": "byte / bps", "status": "valid",
          "note": "Jumlah byte payload GTP-U (tanpa header Ethernet/IP/UDP, yang dibuang MAC). Kumulatif sejak bitstream di-load. bps = selisih per detik."},
-        {"k": "sessions", "name": "Sesi Aktif (TEID)", "unit": "TEID", "status": "valid",
-         "note": "TEID unik terakhir yang diparse; sesi dianggap mati setelah %d detik tanpa update." % TEID_TTL},
+        {"k": "sessions", "name": "Sesi Aktif (TEID)", "unit": "TEID", "status": "sebagian",
+         "note": "Jumlah TEID yang masih hidup di tabel. Gateware mengirim SAMPEL (satu datagram TEID per 64 paket, TEID paket terakhir), jadi sesi berpaket jarang bisa terlambat muncul; sesi dianggap mati setelah %d detik tanpa update. Kolom active_teid dari gateware masih 0, jadi angka ini dihitung backend." % TEID_TTL},
         {"k": "drop", "name": "Drop", "unit": "paket", "status": "belum-ada",
          "note": "Belum ada pendeteksi drop di gateware (pkt_drop terikat 0). Nilai 0 bukan bukti tidak ada paket hilang."},
-        {"k": "imsi", "name": "IMSI Aktif", "unit": "pengguna", "status": "belum-ada",
-         "note": "Ekstraksi IMSI / session table belum ada di gateware (Fase 2). Nilai 0 = belum diukur."},
+        {"k": "imsi", "name": "IMSI Aktif", "unit": "pengguna", "status": "simulasi",
+         "note": "Gateware belum mengekstrak IMSI (butuh parser GTP-C, Fase 2); di paket data GTP-U memang tidak ada IMSI. Saat sumber trafik BUATAN (demo/simulator), backend memberi label FIKTIF per TEID (PLMN uji 001-01) agar tampilan lengkap; ditandai SIM. Pada trafik live nilai tetap 0, tidak dikarang."},
         {"k": "protocol", "name": "Distribusi Protokol", "unit": "%", "status": "sebagian",
          "note": "Gateware mengirim hitungan mentah 16-bit per kelas; backend menormalkan ke persen. Hanya GTP-U yang terisi; GTP-C, PFCP, BSSGP butuh classifier port lain yang belum menerima traffic. Hitungan 16-bit melingkar di 65535, jadi rasio bisa bergeser pada trafik lama."},
         {"k": "events", "name": "Event", "unit": "kejadian", "status": "sebagian",
