@@ -194,6 +194,17 @@ The public demo runs a synthetic burst profile (30 s active, 90 s idle, 120 pps)
 
 Checks that back this up: `fpga/sim/run_qfi_test.sh` (the parser is correct on 50 frames of the reference generator: TEID, message type and exact payload length), `scripts/test_traffic5g.py` (byte-identical to the reference packets, size and rate distributions, determinism), `scripts/test_sim5g.sh` (auth, validation and packets observed on the wire).
 
+### Session KPIs and simulated IMSI labels
+
+The gateware does not fill `total_imsi` or `active_teid` yet (needs a session table and a GTP-C parser, phase 2), and a GTP-U data packet carries no IMSI at all. The backend therefore fills two things, and says so on screen:
+
+| Field | What the backend does | Honest limit |
+|---|---|---|
+| `active_teid` (Sesi Aktif) | Counts TEIDs still alive in the table (`FALCON_TEID_TTL`, default 15 s). Flagged `active_teid_derived`. | The gateware reports a **sample** (one TEID datagram per 64 packets), so rarely used sessions appear late. |
+| IMSI / `total_imsi` | Assigns a **fictitious** IMSI per TEID (PLMN `001-01`, the ITU test network), only while a synthetic source is on (demo or simulator). Tagged `SIM`. | Never invented on live traffic. A value from the gateware always wins and is never overwritten. |
+
+Checks: `scripts/test_session_imsi.sh` (23: labels only on synthetic sources, none on live traffic, gateware values never overwritten, TTL expiry).
+
 ### LTE stack source
 
 *Setup Traffic → Stack LTE simulasi* prepares the simulated network, captures real GTP-U from its S1-U interface, and replays that capture to the board.

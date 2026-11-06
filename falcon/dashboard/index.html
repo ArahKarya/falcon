@@ -66,6 +66,7 @@
   .b-create{ background:rgba(22,199,154,.18); color:var(--teal); }
   .b-delete{ background:rgba(224,83,63,.18); color:var(--red); }
   .teid{ color:var(--cyan); }
+  .simtag{ font-size:9px; padding:1px 4px; border-radius:3px; background:rgba(255,193,7,.18); color:#ffc107; letter-spacing:.5px; vertical-align:middle; }
 
   .evcount{ display:grid; grid-template-columns:repeat(4,1fr); gap:8px; margin-bottom:12px; }
   .evc{ background:var(--bg); border:1px solid var(--line); border-radius:4px; padding:8px 6px; text-align:center; }
@@ -264,7 +265,7 @@
 
   <div class="disc disc-live" id="modebanner">
     <span class="tag tag-live" id="modetag">● LIVE · FPGA</span>
-    <span id="modetext"><b>Telemetri silikon nyata.</b> Data di-parse langsung oleh gateware FALCON (XC5VLX50T) dari paket GTP-U → emit ke backend via UDP :50000. Bukan simulator.</span>
+    <span id="modetext"><b>Pengukuran dilakukan silikon nyata.</b> Setiap paket yang sampai ke papan di-parse langsung oleh gateware FALCON (XC5VLX50T) lalu dilaporkan ke backend via UDP :50000, tanpa emulasi di sisi perangkat lunak. <b>Sumber paketnya</b> ditunjukkan di bawah ini (trafik buatan, replay, atau jaringan nyata).</span>
   </div>
 
   <div class="demobar" id="demobar"><span class="tag" id="demotag">TRAFIK UJI SINTETIS</span>
@@ -277,10 +278,10 @@
   <div class="linkbar" id="linkbar">⚠ <b>FPGA Disconnected</b> — tidak ada datagram telemetri dari board <span id="linkage"></span>. Tampilan menahan nilai terakhir (redup); cek kabel, power, atau generator.</div>
 
   <div class="kpis" id="kpis">
-    <div class="kpi" data-k="imsi"><div class="lbl">IMSI Aktif</div><div class="val cyan" id="k-imsi">—</div><div class="sub">pengguna terdeteksi</div></div>
+    <div class="kpi" data-k="imsi"><div class="lbl">IMSI Aktif</div><div class="val cyan" id="k-imsi">—</div><div class="sub" id="k-imsi-sub">pengguna terdeteksi</div></div>
     <div class="kpi" data-k="ul"><div class="lbl">Uplink</div><div class="val teal" id="k-ul">—</div><div class="sub">paket / detik</div><svg class="spark" id="sp-ul" viewBox="0 0 64 22" preserveAspectRatio="none"></svg></div>
     <div class="kpi" data-k="dl"><div class="lbl">Downlink</div><div class="val" id="k-dl">—</div><div class="sub">paket / detik</div><svg class="spark" id="sp-dl" viewBox="0 0 64 22" preserveAspectRatio="none"></svg></div>
-    <div class="kpi" data-k="teid"><div class="lbl">Sesi Aktif</div><div class="val" id="k-teid">—</div><div class="sub">TEID</div></div>
+    <div class="kpi" data-k="teid"><div class="lbl">Sesi Aktif</div><div class="val" id="k-teid">—</div><div class="sub" id="k-teid-sub">TEID</div></div>
     <div class="kpi" data-k="drop"><div class="lbl">Drop</div><div class="val amber" id="k-drop">—</div><div class="sub" id="k-drop-sub">paket hilang</div></div>
     <div class="kpi" data-k="bw"><div class="lbl">Throughput GTP-U <span style="opacity:.6;font-weight:400">(payload)</span></div><div class="val" id="k-bw">—</div><div class="sub" id="k-bw-sub">akumulasi</div><svg class="spark" id="sp-bw" viewBox="0 0 64 22" preserveAspectRatio="none"></svg></div>
   </div>
@@ -435,9 +436,11 @@ let linkUp = false;
 function renderGlobal(d){
   lastGlobal = d;
   $('k-imsi').textContent = fmt(d.total_imsi);
+  $('k-imsi-sub').textContent = d.imsi_synthetic ? 'label SIMULASI (bukan IMSI nyata)' : 'pengguna terdeteksi';
   $('k-ul').textContent   = fmt(d.uplink_pps);
   $('k-dl').textContent   = fmt(d.downlink_pps);
   $('k-teid').textContent = fmt(d.active_teid);
+  $('k-teid-sub').textContent = d.active_teid_derived ? 'TEID hidup (sampel gateware)' : 'TEID';
   $('k-drop').textContent = fmt(d.drop_count);
   if(d.bps!=null){ $('k-bw').textContent = fmtBps(d.bps); $('k-bw-sub').textContent = 'total '+fmtBytes(d.total_bytes); }
   else { $('k-bw').textContent = fmtBytes(d.total_bytes); }
@@ -493,7 +496,7 @@ function renderTeids(){
   $('f-count').textContent = (q||qfi!=='') ? `${rows.length}/${total}` : '';
   if(!rows.length){ $('teid-body').innerHTML='<tr><td colspan="6" class="empty">'+(total?'tak ada hasil filter':'menunggu data…')+'</td></tr>'; return; }
   $('teid-body').innerHTML = rows.slice(0,cfg.rows).map(d=>`<tr data-teid="${d.teid}">
-    <td class="teid">${d.teid}</td><td>${d.imsi}</td><td>${d.qfi}</td>
+    <td class="teid">${d.teid}</td><td>${d.imsi}${d.imsi_synthetic ? ' <span class="simtag" title="Label fiktif: gateware belum mengekstrak IMSI">SIM</span>' : ''}</td><td>${d.qfi}</td>
     <td>${fmt(d.ul_pkts)}</td><td>${fmt(d.dl_pkts)}</td>
     <td><span class="badge b-active">${d.state}</span></td></tr>`).join('');
 }
