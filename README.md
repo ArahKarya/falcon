@@ -203,6 +203,8 @@ The gateware does not fill `total_imsi` or `active_teid` yet (needs a session ta
 | `active_teid` (Sesi Aktif) | Counts TEIDs still alive in the table (`FALCON_TEID_TTL`, default 15 s). Flagged `active_teid_derived`. | The gateware reports a **sample** (one TEID datagram per 64 packets), so rarely used sessions appear late. |
 | IMSI / `total_imsi` | Assigns a **fictitious** IMSI per TEID (PLMN `001-01`, the ITU test network), only while a synthetic source is on (demo or simulator). Tagged `SIM`. | Never invented on live traffic. A value from the gateware always wins and is never overwritten. |
 
+**IMSI masking.** An IMSI identifies a subscriber, so the backend never sends a full one out. REST (`/api/stats/teid`, `/api/snapshot`), the WebSocket feed and the raw log show only the **first 3 digits** (MCC), the rest as `*` (e.g. `510************`). This applies to real IMSIs from the gateware too, not only simulated labels, and cannot be switched off over the API. The full value stays in backend memory only to count unique users. The raw log also cuts the hex preview of TEID datagrams before the IMSI bytes. Set `FALCON_IMSI_SHOW` (default `3`) only for a private lab. Checks: `scripts/test_imsi_mask.sh` (19: REST, snapshot, WebSocket, raw log, simulated and real IMSI).
+
 Checks: `scripts/test_session_imsi.sh` (23: labels only on synthetic sources, none on live traffic, gateware values never overwritten, TTL expiry).
 
 ### LTE stack source

@@ -41,20 +41,19 @@ chk "A active_teid turunan = jumlah TEID hidup (4)"      "$(echo "$G" | jq1 "d['
 chk "A active_teid ditandai turunan"                     "$(echo "$G" | jq1 "d.get('active_teid_derived')")" True
 chk "A total_imsi = 4 (label sim)"                       "$(echo "$G" | jq1 "d['total_imsi']")" 4
 chk "A total_imsi ditandai simulasi"                     "$(echo "$G" | jq1 "d.get('imsi_synthetic')")" True
-chk "A tiap TEID ber-IMSI 15 digit"                      "$(echo "$TE" | jq1 "all(len(x['imsi'])==15 and x['imsi'].isdigit() for x in d)")" True
-chk "A IMSI berprefiks PLMN uji 00101"                   "$(echo "$TE" | jq1 "all(x['imsi'].startswith('00101') for x in d)")" True
+chk "A tiap TEID ber-IMSI 15 karakter (3 digit + 12 bintang)" "$(echo "$TE" | jq1 "all(len(x['imsi'])==15 and x['imsi'][:3].isdigit() and set(x['imsi'][3:])=={'*'} for x in d)")" True
+chk "A IMSI simulasi berawalan 001 (PLMN uji)"           "$(echo "$TE" | jq1 "all(x['imsi'].startswith('001') for x in d)")" True
 chk "A tiap TEID ditandai imsi_synthetic"                "$(echo "$TE" | jq1 "all(x['imsi_synthetic'] for x in d)")" True
-chk "A IMSI unik per TEID"                               "$(echo "$TE" | jq1 "len({x['imsi'] for x in d})")" 4
+chk "A total_imsi tetap menghitung unik walau tersamar"  "$(echo "$G" | jq1 "d['total_imsi']")" 4
 SNAP=$(curl -s $B:8101/api/snapshot)
 chk "A snapshot (jalur WS/REST) memuat flag yang sama"   "$(echo "$SNAP" | jq1 "d['global'].get('imsi_synthetic') is True and d['global'].get('active_teid_derived') is True")" True
 chk "A /api/measure menandai imsi 'simulasi'"            "$(curl -s -b /dev/null $B:8101/api/measure | jq1 "[i['status'] for i in d['items'] if i['k']=='imsi'][0]")" simulasi
 
 # ---- B. IMSI deterministik antar-restart
-I1=$(echo "$TE" | jq1 "sorted(x['teid']+':'+x['imsi'] for x in d)")
-kill $(echo $PIDS | awk '{print $1}') 2>/dev/null; sleep 1
-run 8102 50102 live "sim5g:30:90:100:campuran:8" zero
-I2=$(curl -s $B:8102/api/stats/teid | jq1 "sorted(x['teid']+':'+x['imsi'] for x in d)")
-chk "B IMSI sama setelah restart (deterministik)"        "$([ "$I1" = "$I2" ] && echo sama || echo beda)" sama
+D1=$($PY -c "import importlib.util as u;s=u.spec_from_file_location('m','server.py');m=u.module_from_spec(s);s.loader.exec_module(m);print(m.synth_imsi('0x00001000'))")
+D2=$($PY -c "import importlib.util as u;s=u.spec_from_file_location('m','server.py');m=u.module_from_spec(s);s.loader.exec_module(m);print(m.synth_imsi('0x00001000'))")
+chk "B IMSI simulasi deterministik (proses berbeda, sama)"   "$([ "$D1" = "$D2" ] && echo sama || echo beda)" sama
+chk "B IMSI simulasi 15 digit berprefiks 00101"           "$([ ${#D1} = 15 ] && [ "${D1:0:5}" = 00101 ] && echo ok || echo salah)" ok
 
 # ---- C. TRAFIK LIVE (tanpa sumber buatan): gateware kirim 0 -> TIDAK dikarang
 run 8103 50103 live "" zero
@@ -70,7 +69,7 @@ run 8104 50104 live "sim5g:30:90:100:campuran:8" real
 G=$(curl -s $B:8104/api/stats/global); TE=$(curl -s $B:8104/api/stats/teid)
 chk "D gateware: total_imsi=7 tidak ditimpa"             "$(echo "$G" | jq1 "d['total_imsi']")" 7
 chk "D gateware: active_teid=9 tidak ditimpa"            "$(echo "$G" | jq1 "d['active_teid']")" 9
-chk "D gateware: IMSI asli dipertahankan"                "$(echo "$TE" | jq1 "all(x['imsi']=='510119999999999' for x in d)")" True
+chk "D gateware: IMSI asli dipertahankan (tersamar 510)"  "$(echo "$TE" | jq1 "all(x['imsi']=='510'+'*'*12 for x in d)")" True
 chk "D gateware: tidak ditandai simulasi"                "$(echo "$TE" | jq1 "any(x.get('imsi_synthetic') for x in d)")" False
 chk "D gateware: tanpa flag turunan"                     "$(echo "$G" | jq1 "(d.get('active_teid_derived'), d.get('imsi_synthetic'))")" "(None, None)"
 
