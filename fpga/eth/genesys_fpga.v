@@ -34,7 +34,12 @@ module genesys_fpga (
     output wire [7:0] phy_txd,
     output wire       phy_tx_en,
     output wire       phy_tx_er,
-    output wire       phy_reset_n
+    output wire       phy_reset_n,
+
+    /* AC97 codec LM4550: dikunci DIAM (lihat blok 'Audio codec' di bawah) */
+    output wire       aud_reset_n,  // E12  cold reset codec (aktif rendah)
+    output wire       aud_sync,     // J9   AC-Link SYNC (juga warm reset)
+    output wire       aud_sdo       // AG20 AC-Link data ke codec
 );
 
 // ---------------------------------------------------------------------------
@@ -118,6 +123,20 @@ core_inst (
     .phy_tx_er(phy_tx_er),
     .phy_reset_n(phy_reset_n)
 );
+
+// ---------------------------------------------------------------------------
+// Audio codec LM4550 (IC19): DIAMKAN.
+// FALCON tak memakai audio. Sebelumnya pin AC97 tak dikunci -> bitgen memberi pull-down
+// -> AUD-RESET tertahan RENDAH terus. Menurut manual Genesys, selama RESET aktif codec
+// menyambungkan PC_BEEP langsung ke line-out dan jalur analognya tak terkendali; bukti
+// lapangan: dengung/umpan balik keras dari jack papan.
+// Di sini: RESET dilepas (tinggi) -> semua register kembali ke default LM4550, yaitu
+// semua volume MUTE (mis. master 0x8000). SYNC & SDO rendah = tak ada frame, tak ada data.
+// BIT_CLK (AH17) dan SDI (AE18) adalah keluaran codec -> dibiarkan tak dipakai.
+// ---------------------------------------------------------------------------
+assign aud_reset_n = 1'b1;
+assign aud_sync    = 1'b0;
+assign aud_sdo     = 1'b0;
 
 endmodule
 

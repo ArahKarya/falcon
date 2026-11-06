@@ -6,7 +6,7 @@ set -e
 
 VE="/data/yayang/verilog-ethernet-full"          # checkout c5b6202
 ETH="$(cd "$(dirname "$0")" && pwd)"
-WORK="/data/yayang/falcon/fpga/eth/build"
+WORK="${FALCON_WORK:-/data/yayang/falcon/fpga/eth/build}"
 TOP="genesys_fpga"
 PART="xc5vlx50t-1-ff1136"
 
