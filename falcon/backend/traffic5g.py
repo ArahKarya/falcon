@@ -21,10 +21,12 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 PROFILE_PATH = os.path.join(HERE, "profiles", "app_profiles.json")
 
 GTPU_HDR_LEN = 16            # 8 dasar + 3 (seq,npdu,next) + 5 ekstensi QFI
+UDP_PAYLOAD_MAX = 1472       # MTU 1500 - IPv4 20 - UDP 8. Lebih besar = kernel memecah jadi fragmen IP; fragmen
+                             # ke-2 tak punya header UDP, jadi gateware tak menghitungnya (selisih byte terukur di papan).
 BUCKETS = (("<100", None, 99), ("100-299", 100, 299), ("300-599", 300, 599),
            ("600-899", 600, 899), ("900-1199", 900, 1199), (">=1200", 1200, None))
 TEID_BASE = 0x2000           # sama dengan pemetaan TEID di repo rujukan
-MAX_INNER = 1484             # 1500 MTU - 16 header GTP-U
+MAX_INNER = UDP_PAYLOAD_MAX - GTPU_HDR_LEN   # = 1456: paket UE terbesar agar datagram UDP muat satu frame
 TICK_MAX_BURST = 4000        # batas paket per next_batch agar tak membanjiri satu tick
 
 # Komposisi bawaan = teid_share_per_app dari config/teid_map_1000.json repo rujukan.
