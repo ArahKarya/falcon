@@ -89,4 +89,20 @@ chk "ganti sim-5g -> sim-5g (restart bersih)"  "$(code -b $T/op.jar -X POST $B/a
 chk "start kedua tidak membocorkan task"       "$(code -b $T/op.jar -X POST $B/api/traffic/start -H "$H" -d "$START")" 200
 sleep 1.5
 chk "satu generator aktif, sumber sim-5g"      "$(curl -s -b $T/op.jar $B/api/sim5g | jq1 "d['active'] and d['sent_pkts']>0")" True
+# --- FALCON_DEMO_TRAFFIC: spesifikasi demo saat startup ---
+spec_start(){  # $1=spec -> jalankan backend sesaat, cetak sumber demo + jumlah sesi, lalu matikan
+  FALCON_HTTP_PORT=8095 FALCON_UDP_PORT=50095 FALCON_MODE=sim FALCON_DEMO_TARGET=127.0.0.1:59999 FALCON_DEMO_TRAFFIC="$1" \
+    $PY server.py > "$T/be2.log" 2>&1 & P2=$!
+  sleep 2.5
+  R=$(curl -s http://127.0.0.1:8095/api/demo | python3 -c "import sys,json;d=json.load(sys.stdin);print(d['enabled'],d['source'],d.get('pps'),d.get('on_s'),d.get('off_s'),d.get('pool'))")
+  kill $P2 2>/dev/null; wait $P2 2>/dev/null
+  echo "$R"
+}
+chk "spec sim5g:30:90:120:campuran:48"         "$(spec_start sim5g:30:90:120:campuran:48)" "True sim-5g 120 30 90 48"
+chk "spec sim5g tanpa preset/ues -> bawaan"    "$(spec_start sim5g:30:90:120)" "True sim-5g 120 30 90 64"
+chk "spec burst lama tetap jalan"              "$(spec_start burst:30:90:120 | cut -d' ' -f1-5)" "True synthetic 120 30 90"
+chk "spec preset ngawur -> demo mati"          "$(spec_start sim5g:30:90:120:ngawur | cut -d' ' -f1)" "False"
+chk "spec pps di luar batas -> demo mati"      "$(spec_start sim5g:30:90:999999 | cut -d' ' -f1)" "False"
+chk "spec rusak -> demo mati"                  "$(spec_start sim5g:abc | cut -d' ' -f1)" "False"
+chk "spec 'off' -> demo mati"                  "$(spec_start off | cut -d' ' -f1)" "False"
 echo "---- $PASS lulus, $FAIL gagal"; [ "$FAIL" = 0 ]

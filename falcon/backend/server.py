@@ -23,6 +23,7 @@ HTTP_PORT = int(os.environ.get("FALCON_HTTP_PORT", 8080))
 # FALCON_MODE   : "live" (board nyata, default) | "sim" (simulator; dashboard menampilkan banner SIMULASI)
 # FALCON_PUBLIC : "1" => deploy publik: endpoint kontrol generator (POST start/stop) ditolak 403
 MODE = os.environ.get("FALCON_MODE", "live").lower()
+# FALCON_DEMO_TRAFFIC="sim5g:30:90:120[:preset[:ues]]" => sama, tetapi sumber simulator 5G (traffic5g), mis. sim5g:30:90:120:campuran:48
 # FALCON_DEMO_TRAFFIC="burst:30:90:120" => backend sendiri menembakkan traffic GTP-U sintetis ke board
 #   (aktif <on> detik @ <pps> paket/dtk, jeda <off> detik). Dashboard menampilkan badge "TRAFIK UJI SINTETIS".
 #   Kosong/off = mati. Target: FALCON_DEMO_TARGET (default 192.168.0.20:2152).
@@ -722,6 +723,29 @@ async def index(r):
     return await _page("index.html")(r)
 
 
+def start_demo_from_spec(spec: str):
+    """Mulai demo dari FALCON_DEMO_TRAFFIC. Melempar ValueError bila format/isi salah (tak menyalakan apa pun)."""
+    parts = spec.split(":")
+    kind = parts[0].lower()
+    if kind not in ("burst", "sim5g") or len(parts) < 4:
+        raise ValueError("format")
+    on_s, off_s, pps = int(parts[1]), int(parts[2]), int(parts[3])
+    for k, v in (("pps", pps), ("on_s", on_s), ("off_s", off_s)):
+        lo, hi = DEMO_LIMITS[k]
+        if not lo <= v <= hi:
+            raise ValueError(f"{k} harus {lo}..{hi}")
+    if kind == "burst":
+        demo_start(on_s, off_s, pps)
+        return
+    preset = parts[4] if len(parts) > 4 and parts[4] else "campuran"
+    ues = int(parts[5]) if len(parts) > 5 and parts[5] else 64
+    if preset not in traffic5g.MIX_PRESETS:
+        raise ValueError(f"preset {preset!r} tidak dikenal")
+    g = traffic5g.Generator(pps=pps, mix=traffic5g.MIX_PRESETS[preset], ues=ues)
+    sim5g.update({"gen": g, "cfg": {"preset": preset, "ues": ues, "burst": 1.0, "seed": 5152}})
+    demo_start(on_s, off_s, pps, "sim-5g")
+
+
 async def on_startup(app):
     loop = asyncio.get_event_loop()
     await loop.create_datagram_endpoint(lambda: TelemetryProto(loop),
@@ -729,10 +753,9 @@ async def on_startup(app):
     asyncio.ensure_future(link_watcher())
     if DEMO_SPEC and DEMO_SPEC.lower() != "off":
         try:
-            _, on_s, off_s, pps = DEMO_SPEC.split(":")
-            demo_start(int(on_s), int(off_s), int(pps))
-        except ValueError:
-            print(f"[FALCON-BE] FALCON_DEMO_TRAFFIC tidak valid: {DEMO_SPEC!r} (format burst:ON:OFF:PPS)")
+            start_demo_from_spec(DEMO_SPEC)
+        except ValueError as e:
+            print(f"[FALCON-BE] FALCON_DEMO_TRAFFIC tidak valid: {DEMO_SPEC!r} ({e}); format burst:ON:OFF:PPS atau sim5g:ON:OFF:PPS[:preset[:ues]]")
     if not auth.has_users():
         print("[FALCON-BE] PERINGATAN: belum ada akun operator -> halaman Setup terkunci. Buat: python3 auth.py add <user> operator")
     print(f"[FALCON-BE] UDP listener :{UDP_PORT}  ·  HTTP/WS :{HTTP_PORT}  ·  mode={MODE} public={PUBLIC}")
