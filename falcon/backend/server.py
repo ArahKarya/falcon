@@ -108,6 +108,28 @@ DROP_CRIT_PCT = 5.0
 SYNTH_PLMN = "00101"
 
 
+# ---- Penyamaran IMSI di semua keluaran ------------------------------------------------------------
+# IMSI = pengenal pelanggan (data pribadi). Backend menyimpan nilai penuh di memori (perlu untuk hitung unik),
+# tetapi KE LUAR (REST, snapshot, WebSocket, rawlog, ekspor) hanya 3 digit depan (MCC) yang keluar; sisanya '*'.
+# Berlaku juga untuk IMSI asli dari gateware kelak, bukan hanya label simulasi. Tak bisa dimatikan lewat API.
+IMSI_SHOW = max(0, int(os.environ.get("FALCON_IMSI_SHOW", "3")))
+
+
+def mask_imsi(v) -> str:
+    s = str(v or "").strip()
+    if not s:
+        return ""
+    return s[:IMSI_SHOW] + "*" * max(len(s) - IMSI_SHOW, 0)
+
+
+def public_teid(d: dict) -> dict:
+    """Salinan baris TEID aman-keluar: tanpa field internal '_*', IMSI disamarkan."""
+    o = {k: v for k, v in d.items() if not k.startswith("_")}
+    if "imsi" in o:
+        o["imsi"] = mask_imsi(o["imsi"])
+    return o
+
+
 def synthetic_source_active() -> bool:
     return MODE == "sim" or bool(demo.get("enabled"))
 
@@ -235,7 +257,7 @@ class TelemetryProto(asyncio.DatagramProtocol):
             "type_id": tid,
             "type": TYPE_NAMES.get(tid, f"0x{tid:02X}" if tid >= 0 else "?"),
             "len": len(data),
-            "hex": data[:16].hex(),
+            "hex": (data[:8].hex() + "…" if tid == C.TYPE_TEID else data[:16].hex()),
             "err": False,
         }
         try:
@@ -255,7 +277,7 @@ class TelemetryProto(asyncio.DatagramProtocol):
         update_state(msg)
         # strip internal field sebelum kirim
         if msg["type"] == "teid":
-            msg["data"] = {k: v for k, v in msg["data"].items() if not k.startswith("_")}
+            msg["data"] = public_teid(msg["data"])
         elif msg["type"] == "event":
             msg["counter"] = dict(state["evt_counter"])   # sertakan counter terkini
         alert = msg.pop("alert", None)
@@ -301,8 +323,7 @@ def snapshot():
         "link": link_status(),
         "global": state["global"],
         "protocol": state["protocol"],
-        "teid": [{k: v for k, v in d.items() if not k.startswith("_")}
-                 for d in state["teid"].values()],
+        "teid": [public_teid(d) for d in state["teid"].values()],
         "events": list(state["events"])[:20],
         "history": list(state["history"]),
         "evt_counter": state["evt_counter"],
@@ -316,7 +337,7 @@ def snapshot():
 
 async def api_health(r):   return web.json_response({"status": "ok", "uptime_s": int(time.time()-state["started"]), "msg_count": state["msg_count"], "err_count": state["err_count"]})
 async def api_global(r):   return web.json_response(state["global"])
-async def api_teid(r):     expire_teids(); return web.json_response([{k:v for k,v in d.items() if not k.startswith("_")} for d in state["teid"].values()])
+async def api_teid(r):     expire_teids(); return web.json_response([public_teid(d) for d in state["teid"].values()])
 async def api_events(r):
     lim = int(r.query.get("limit", 20))
     return web.json_response(list(state["events"])[:lim])
