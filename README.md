@@ -173,10 +173,26 @@ The gateware counts whatever arrives on UDP `:2152`. It cannot tell where a pack
 | Mode | Source | Dashboard badge |
 |---|---|---|
 | **Synthetic** | The backend generates GTP-U test frames (`FALCON_DEMO_TRAFFIC`, or *Setup Traffic*) | **TRAFIK UJI SINTETIS** |
+| **5G application simulator** | `traffic5g.py` generates GTP-U **with a QFI extension header** from eight application profiles (video, games, conferencing, best effort) | **SIMULATOR 5G** |
 | **LTE stack replay** | GTP-U captured from a simulated 4G network (Open5GS core + srsRAN eNB and UE), replayed to the board | **REPLAY STACK LTE** |
 | **Live** | A tap or port mirror from a real network cabled to the board's Ethernet port | none. Leave the other sources off |
 
 The public demo runs a synthetic burst profile (30 s active, 90 s idle, 120 pps) so the dashboard is never empty. **Numbers from the demo are test traffic.**
+
+### 5G application simulator
+
+*Setup Traffic → Simulator 5G (profil aplikasi)* sends 5G-style user-plane traffic: GTP-U with the PDU Session Container extension (flags `0x34`, extension `0x85`, QFI in byte 14), one TEID per simulated UE.
+
+**Where the data comes from, honestly.** The packet layout and the eight application profiles (packet-size histogram, inter-packet gap, per-second burst pattern) come from [niloysh/5g-traffic-generator](https://github.com/niloysh/5g-traffic-generator) (MIT, `falcon/backend/profiles/LICENSE-5g-traffic-generator`), whose profiles were derived from captured application traffic. The packet sequence, the payload bytes and the split into UE sessions are **generated here**. Treat it as *artificial traffic with real statistics*, not as operator traffic. The dashboard badge says so.
+
+| Setting | Meaning |
+|---|---|
+| Composition | `campuran` (default share per app from the reference project), `video`, `game`, `konferensi` |
+| UEs | 1 to 1000 sessions, each with its own TEID and the QFI of its application |
+| Burst | 0 = flat rate, 1 = follow the recorded per-second pattern (profiles with fewer than 30 trace points are kept flat) |
+| Spike | Multiplies the rate of one application for a set time, to test anomaly handling |
+
+Checks that back this up: `fpga/sim/run_qfi_test.sh` (the parser is correct on 50 frames of the reference generator: TEID, message type and exact payload length), `scripts/test_traffic5g.py` (byte-identical to the reference packets, size and rate distributions, determinism), `scripts/test_sim5g.sh` (auth, validation and packets observed on the wire).
 
 ### LTE stack source
 
@@ -324,7 +340,9 @@ The bitstream is **volatile** (SRAM): it is lost at power-off. Flashing it to th
 | `/api/generator/status` · `start` · `stop` | GET / POST / POST | Packet generator control (blocked when `FALCON_PUBLIC=1`) |
 | `/api/login` · `/api/logout` · `/api/me` | POST / POST / GET | Operator session |
 | `/api/setup/fpga` · `/api/setup/traffic` | GET | Setup pages data (login required) |
-| `/api/traffic/start` · `stop` | POST | Start or stop test traffic; `source` = `synthetic` or `stack-lte` (operator only) |
+| `/api/traffic/start` · `stop` | POST | Start or stop test traffic; `source` = `synthetic`, `stack-lte` or `sim-5g` (operator only) |
+| `/api/sim5g` | GET | Simulator state: sessions, per-app counters, TEID to app map (operator only) |
+| `/api/sim5g/inject` | POST | Rate spike `{factor, seconds, app?}` on the running simulator (operator only) |
 | `/api/stack/prepare` · `stop` | POST | Start the LTE stack and capture, or stop it (operator only) |
 
 `ws://<host>:<port>/ws` sends a snapshot on connect, then per-update frames.

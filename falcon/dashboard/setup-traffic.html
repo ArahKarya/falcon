@@ -17,11 +17,12 @@
 
   <div class="panel">
     <h3>Jalur trafik <span class="tag" id="modetag">—</span></h3>
-<pre class="diagram">  [ Sumber trafik ]                              [ Papan FPGA ]                [ Host ]
-  ───────────────                              ──────────────                ────────
-  Sintetis  : backend kirim GTP-U uji ───┐
-  Stack LTE : Open5GS+srsRAN (tangkap+putar) ┼──► Ethernet  192.168.0.20 :2152 ──► telemetri UDP :50000 ──► dashboard
-  Live      : mirror/TAP jaringan nyata ─┘      (hitung & parse di silikon)</pre>
+<pre class="diagram">  [ Sumber trafik ]                                  [ Papan FPGA ]                [ Host ]
+  ──────────────────────────────────────────────   ──────────────                ────────
+  Sintetis     : backend kirim GTP-U uji         ┐
+  Simulator 5G : profil aplikasi nyata (QFI)     ┤
+  Stack LTE    : Open5GS+srsRAN (tangkap+putar)  ┼──► Ethernet 192.168.0.20 :2152 ──► telemetri UDP :50000 ──► dashboard
+  Live         : mirror/TAP jaringan nyata       ┘    (hitung &amp; parse di silikon)</pre>
     <div class="note info" id="whereto">—</div>
   </div>
 
@@ -33,10 +34,29 @@
   <div class="panel" id="synthpanel">
     <h3>Kirim ke board <span class="tag" id="synstate">—</span></h3>
     <div class="row">
-      <div><label>Sumber</label><select id="src"><option value="synthetic">Sintetis (backend)</option><option value="stack-lte">Replay stack LTE</option></select></div>
+      <div><label>Sumber</label><select id="src"><option value="synthetic">Sintetis (backend)</option><option value="sim-5g">Simulator 5G (profil aplikasi)</option><option value="stack-lte">Replay stack LTE</option></select></div>
       <div><label>Laju (paket/dtk)</label><input type="number" id="pps" min="1" max="5000" value="120"></div>
       <div><label>Aktif (detik)</label><input type="number" id="on" min="1" max="3600" value="30"></div>
       <div><label>Jeda (detik, 0 = terus-menerus)</label><input type="number" id="off" min="0" max="3600" value="90"></div>
+    </div>
+    <div id="simcfg" style="display:none">
+      <div class="note info" style="margin:10px 0">Bentuk paket (GTP-U + ekstensi QFI) dan 8 profil aplikasi diambil dari proyek <b>niloysh/5g-traffic-generator</b> (MIT), yang profilnya diturunkan dari rekaman trafik aplikasi nyata. Urutan paket dan isinya <b>dibuat</b>, jadi ini <b>trafik buatan berstatistik nyata</b>, bukan trafik operator.</div>
+      <div class="row">
+        <div><label>Komposisi aplikasi</label><select id="spreset"></select></div>
+        <div><label>Jumlah UE (sesi TEID)</label><input type="number" id="sues" min="1" max="1000" value="64"></div>
+        <div><label>Burst (0 = rata, 1 = ikut rekaman)</label><input type="number" id="sburst" min="0" max="1" step="0.1" value="1"></div>
+      </div>
+      <div id="siminfo" class="kv" style="margin:10px 0;font-family:'JetBrains Mono',monospace;font-size:11.5px;color:#b6c6da"></div>
+      <div id="simanom" style="display:none">
+        <h3 style="margin:14px 0 6px;font-size:13px">Suntik lonjakan (uji deteksi anomali)</h3>
+        <div class="row">
+          <div><label>Aplikasi</label><select id="aapp"></select></div>
+          <div><label>Pengali laju (1-20)</label><input type="number" id="afac" min="1" max="20" value="5"></div>
+          <div><label>Durasi (detik)</label><input type="number" id="asec" min="1" max="600" value="20"></div>
+        </div>
+        <button class="btn" id="bamom">Suntik lonjakan</button>
+        <div class="msg" id="amsg" style="margin-top:8px"></div>
+      </div>
     </div>
     <div id="ctl">
       <button class="btn" id="bstart">Mulai</button>
@@ -92,7 +112,7 @@ function applyRole(){
 async function load(){
   const j = await (await fetch('/api/setup/traffic')).json();
   const d = j.demo, st = j.stack || {};
-  const lbl = d.source==='stack-lte' ? 'replay stack LTE' : 'sintetis';
+  const lbl = d.source==='stack-lte' ? 'replay stack LTE' : (d.source==='sim-5g' ? 'simulator 5G' : 'sintetis');
   document.getElementById('whereto').innerHTML = 'Paket GTP-U dikirim backend ke <code>'+esc(j.target)+'</code> (UDP 2152 pada papan). Sumber saat ini: <b>'+lbl+'</b>.';
   document.getElementById('sources').innerHTML = j.sources.map(s=>{
     const [c,l] = SRC[s.status]||['off',s.status];
@@ -104,6 +124,21 @@ async function load(){
   const mt = document.getElementById('modetag');
   mt.className = 'tag '+(d.enabled?'warn':'ok'); mt.textContent = d.enabled ? (lbl+' aktif') : 'tidak ada sumber buatan';
   document.getElementById('demokv').innerHTML = '<b>Terkirim</b> '+d.sent.toLocaleString('id-ID')+' paket'+(d.enabled?' · sumber '+lbl+' · '+d.on_s+' dtk aktif / '+d.off_s+' dtk jeda @ '+d.pps+' pps'+(d.pool?' · '+d.pool+' paket unik':''):'');
+  // simulator 5G
+  const sm5 = j.sim5g || {};
+  const sp = document.getElementById('spreset');
+  if (!sp.options.length && sm5.presets) sp.innerHTML = sm5.presets.map(p=>'<option value="'+esc(p)+'">'+esc(p)+'</option>').join('');
+  const aa = document.getElementById('aapp');
+  if (!aa.options.length && sm5.apps) aa.innerHTML = '<option value="">semua aplikasi</option>' + sm5.apps.map(p=>'<option value="'+esc(p)+'">'+esc(p)+'</option>').join('');
+  const on5 = !!sm5.active;
+  document.getElementById('simanom').style.display = (isOp && on5) ? '' : 'none';
+  let ik = '';
+  if (on5) {
+    const pa = Object.entries(sm5.per_app||{}).sort((a,b)=>b[1].pkts-a[1].pkts).map(([a,v])=>esc(a)+' '+v.pkts.toLocaleString('id-ID')).join(' · ');
+    ik = '<b>Sesi</b> '+sm5.sessions+' UE · <b>Paket</b> '+sm5.sent_pkts.toLocaleString('id-ID')+' · <b>Byte</b> '+sm5.sent_bytes.toLocaleString('id-ID')+'<br><b>Per aplikasi</b> '+pa;
+    if ((sm5.anomalies||[]).length) ik += '<br><b>Lonjakan aktif</b> '+sm5.anomalies.map(a=>esc(a.app||'semua')+' x'+a.factor+' ('+Math.round(a.remaining)+' dtk lagi)').join(' · ');
+  }
+  document.getElementById('siminfo').innerHTML = ik;
   // stack
   const [c,l] = SRC[st.state]||['off',st.state||'—'];
   const ss = document.getElementById('stackstate'); ss.className='tag '+c; ss.textContent=l;
@@ -128,7 +163,17 @@ async function post(url, body){
   m.className = 'msg '+(j.ok?'ok':'err'); m.textContent = j.ok ? 'Berhasil.' : (j.error||'Gagal');
   load();
 }
-document.getElementById('bstart').onclick = ()=> post('/api/traffic/start', {source:src.value, pps:+pps.value, on_s:+on.value, off_s:+off.value});
+document.getElementById('bstart').onclick = ()=> {
+  const b = {source:src.value, pps:+pps.value, on_s:+on.value, off_s:+off.value};
+  if (src.value==='sim-5g') b.sim5g = {preset:spreset.value, ues:+sues.value, burst:+sburst.value};
+  post('/api/traffic/start', b);
+};
+src.onchange = ()=>{ document.getElementById('simcfg').style.display = src.value==='sim-5g' ? '' : 'none'; };
+document.getElementById('bamom').onclick = async ()=>{
+  const m=document.getElementById('amsg'); m.className='msg'; m.textContent='…';
+  const r=await fetch('/api/sim5g/inject',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({factor:+afac.value,seconds:+asec.value,app:aapp.value||null})});
+  const j=await r.json(); m.className='msg '+(j.ok?'ok':'err'); m.textContent=j.ok?'Lonjakan aktif.':(j.error||'Gagal'); load();
+};
 async function stackPost(url, body){
   const m=document.getElementById('stackmsg'); m.className='msg'; m.textContent='…';
   const r=await fetch(url,{method:'POST',headers:{'content-type':'application/json'},body:body?JSON.stringify(body):undefined});
