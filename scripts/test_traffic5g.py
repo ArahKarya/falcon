@@ -48,6 +48,15 @@ bad = [1 for pl, _, _ in pk if (lambda h: h["flags"] != 0x34 or h["mtype"] != 0x
                                 or h["length"] != len(pl) - 8 or len(pl) > 1500 or len(pl) < T.GTPU_HDR_LEN + 20)(T.parse_gtpu(pl))]
 chk("semua paket valid (flags/ext/length/MTU)", pk and not bad, "%d buruk dari %d" % (len(bad), len(pk)))
 
+# 2b. TIDAK ADA paket melebihi payload UDP maksimum (kalau lebih, kernel memecah -> gateware kehilangan byte)
+g = T.Generator(pps=4000, burst=0.0, seed=11)
+big = [len(pl) for pl, _, _ in run(g, 30) if len(pl) > T.UDP_PAYLOAD_MAX]
+chk("tak ada paket > %d byte (cegah fragmentasi IP)" % T.UDP_PAYLOAD_MAX, not big, "%d paket, maks %s" % (len(big), max(big) if big else 0))
+for app in T.load_profiles():
+    gg = T.Generator(pps=2000, mix={app: 1.0}, ues=4, burst=0.0, seed=12)
+    mx = max(len(pl) for pl, _, _ in run(gg, 10))
+    chk("%s: ukuran maks %d <= %d" % (app, mx, T.UDP_PAYLOAD_MAX), mx <= T.UDP_PAYLOAD_MAX)
+
 # 3. laju rata-rata ~ target (burst dimatikan agar murni)
 for target in (100, 500, 2000, 4000):
     g = T.Generator(pps=target, burst=0.0, seed=2)
@@ -77,7 +86,7 @@ for app in ("netflix", "battlegrounds", "zoom"):
         d = max(d, abs(frac - b[k] / n))
     chk("%s: ukuran ~ histogram profil (selisih maks %.3f)" % (app, d), d < 0.03)
     st = prof[app]["stats"]["packet_size"]
-    chk("%s: ukuran dalam [min,max] profil" % app, min(sz) >= max(20, st["min"]) and max(sz) <= st["max"])
+    chk("%s: ukuran dalam [min,max] profil" % app, min(sz) >= max(20, st["min"]) and max(sz) <= min(st["max"], T.MAX_INNER))
 
 # 6. TEID unik per sesi, QFI mengikuti profil
 g = T.Generator(pps=500, ues=64, seed=5)
