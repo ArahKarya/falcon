@@ -16,6 +16,7 @@ import auth
 import stack
 import fpga
 import gtpu_pcap
+import traffic5g
 
 UDP_PORT = int(os.environ.get("FALCON_UDP_PORT", 50000))
 HTTP_PORT = int(os.environ.get("FALCON_HTTP_PORT", 8080))
@@ -307,6 +308,7 @@ def _deny_public():
 
 demo = {"enabled": False, "active": False, "pps": 0, "on_s": 0, "off_s": 0, "next_flip": 0, "sent": 0,
         "source": "synthetic"}
+sim5g = {"gen": None, "cfg": None}     # generator trafik5g aktif + konfigurasinya
 
 
 def _load_payloads():
@@ -331,6 +333,9 @@ async def demo_traffic_task(on_s: int, off_s: int, pps: int, source: str = "synt
     """Kirim GTP-U sintetis ke board: aktif on_s detik @ pps, jeda off_s detik (0 = terus-menerus)."""
     import socket
     host, port = DEMO_TARGET.rsplit(":", 1)
+    if source == "sim-5g":
+        await _sim5g_loop(on_s, off_s, host, int(port))
+        return
     if source == "stack-lte":
         try:
             payloads = gtpu_pcap.gtpu_payloads(stack.PCAP)
@@ -378,17 +383,55 @@ async def demo_traffic_task(on_s: int, off_s: int, pps: int, source: str = "synt
         sock.close()
 
 
+async def _sim5g_loop(on_s: int, off_s: int, host: str, port: int):
+    """Sumber 'sim-5g': generator traffic5g (profil aplikasi nyata) dialirkan ke board, jadwal aktif/jeda sama."""
+    import socket
+    g = sim5g["gen"]
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    demo.update({"enabled": True, "pps": int(g.pps), "on_s": on_s, "off_s": off_s, "source": "sim-5g",
+                 "pool": len(g.sessions)})
+    loop = asyncio.get_event_loop()
+    tick = 0.02
+    print(f"[FALCON-BE] sim-5g AKTIF: {len(g.sessions)} sesi, ~{g.pps:.0f} pps, {on_s}s on / {off_s}s off -> {DEMO_TARGET}")
+    try:
+        while True:
+            demo["active"] = True
+            demo["next_flip"] = int(time.time() + on_s)
+            end = loop.time() + on_s
+            nxt = loop.time()
+            while loop.time() < end:
+                for pl, _teid, _app in g.next_batch(tick):
+                    try:
+                        sock.sendto(pl, (host, port))
+                        demo["sent"] += 1
+                    except OSError:
+                        pass
+                nxt += tick
+                d = nxt - loop.time()
+                await asyncio.sleep(d if d > 0 else 0)
+            if off_s <= 0:
+                continue
+            demo["active"] = False
+            demo["next_flip"] = int(time.time() + off_s)
+            await asyncio.sleep(off_s)
+    finally:
+        demo.update({"enabled": False, "active": False})
+        sock.close()
+
+
 def demo_start(on_s: int, off_s: int, pps: int, source: str = "synthetic"):
-    demo_stop()
+    demo_stop(clear_sim=(source != "sim-5g"))
     _demo_task[0] = asyncio.ensure_future(demo_traffic_task(on_s, off_s, pps, source))
 
 
-def demo_stop():
+def demo_stop(clear_sim: bool = True):
     t = _demo_task[0]
     if t and not t.done():
         t.cancel()
     _demo_task[0] = None
     demo.update({"enabled": False, "active": False, "source": "synthetic", "pool": 0})
+    if clear_sim:
+        sim5g.update({"gen": None, "cfg": None})
 
 
 async def api_demo(r):
@@ -555,12 +598,22 @@ async def api_setup_traffic(r):
              "desc": "Backend mengirim paket GTP-U uji ke board. Tanpa jaringan nyata."},
             {"id": "stack-lte", "name": "Stack LTE (Open5GS + srsRAN)", "status": sstat,
              "desc": "UE simulasi attach ke core 4G; GTP-U S1-U asli ditangkap lalu diputar ulang ke board."},
+            {"id": "sim-5g", "name": "Simulator 5G (profil aplikasi)", "status": "ready",
+             "desc": "GTP-U berekstensi QFI dengan profil aplikasi nyata (video, game, konferensi). Statistik nyata, paket buatan."},
             {"id": "live", "name": "Live (antarmuka fisik)", "status": "manual",
              "desc": "Kabel mirror/TAP dari jaringan nyata ke port Ethernet board. Matikan sumber lain."},
         ],
         "demo": demo, "target": DEMO_TARGET, "limits": DEMO_LIMITS,
+        "sim5g": dict(sim5g_info(), apps=sorted(traffic5g.load_profiles()), presets=sorted(traffic5g.MIX_PRESETS)),
         "stack": dict(st, job=stack.job, capture=cap, installed=stack.installed()),
     })
+
+
+def sim5g_info():
+    g = sim5g["gen"]
+    if not g:
+        return {"active": False}
+    return dict(g.snapshot(), active=True, cfg=sim5g["cfg"], teids=g.teid_apps())
 
 
 def stack_capture_info():
@@ -582,12 +635,45 @@ async def api_traffic_start(r):
         if not lo <= v <= hi:
             return web.json_response({"ok": False, "error": f"{k} harus {lo}..{hi}"}, status=400)
     source = d.get("source", "synthetic")
-    if source not in ("synthetic", "stack-lte"):
+    if source not in ("synthetic", "stack-lte", "sim-5g"):
         return web.json_response({"ok": False, "error": "sumber tidak dikenal"}, status=400)
+    if source == "sim-5g":
+        cfg = d.get("sim5g") or {}
+        try:
+            mix = traffic5g.MIX_PRESETS[cfg["preset"]] if cfg.get("preset") else (cfg.get("mix") or None)
+            if cfg.get("preset") and cfg["preset"] not in traffic5g.MIX_PRESETS:
+                raise ValueError("preset tidak dikenal")
+            ues = int(cfg.get("ues", 64))
+            burst = float(cfg.get("burst", 1.0))
+            g = traffic5g.Generator(pps=pps, mix=mix, ues=ues, burst=burst, seed=int(cfg.get("seed", 5152)))
+        except (ValueError, TypeError, KeyError) as e:
+            return web.json_response({"ok": False, "error": "konfigurasi sim-5g: %s" % e}, status=400)
+        sim5g.update({"gen": g, "cfg": {"preset": cfg.get("preset"), "ues": ues, "burst": burst,
+                                         "seed": int(cfg.get("seed", 5152))}})
+        demo_start(on_s, off_s, pps, source)
+        return web.json_response({"ok": True, "demo": demo, "sim5g": sim5g_info()})
     if source == "stack-lte" and not os.path.exists(stack.PCAP or "/nonexistent"):
         return web.json_response({"ok": False, "error": "belum ada tangkapan; jalankan 'Siapkan stack' dulu"}, status=409)
     demo_start(on_s, off_s, pps, source)
     return web.json_response({"ok": True, "demo": demo})
+
+
+async def api_sim5g_inject(r):
+    g = sim5g["gen"]
+    if not g:
+        return web.json_response({"ok": False, "error": "simulator 5G tidak berjalan"}, status=409)
+    try:
+        d = await r.json()
+        teid = d.get("teid")
+        an = g.inject(float(d["factor"]), float(d["seconds"]), app=d.get("app") or None,
+                      teid=int(teid) if teid not in (None, "") else None)
+    except (KeyError, ValueError, TypeError) as e:
+        return web.json_response({"ok": False, "error": str(e) or "masukan tidak valid"}, status=400)
+    return web.json_response({"ok": True, "anomaly": an})
+
+
+async def api_sim5g_status(r):
+    return web.json_response(dict(sim5g_info(), apps=sorted(traffic5g.load_profiles())))
 
 
 async def api_traffic_stop(r):
@@ -667,6 +753,8 @@ def make_app():
         web.get("/api/setup/traffic", api_setup_traffic),
         web.post("/api/traffic/start", api_traffic_start),
         web.post("/api/traffic/stop", api_traffic_stop),
+        web.post("/api/sim5g/inject", api_sim5g_inject),
+        web.get("/api/sim5g", api_sim5g_status),
         web.post("/api/stack/prepare", api_stack_prepare),
         web.post("/api/stack/stop", api_stack_stop),
         web.post("/api/fpga/load", api_fpga_load),
