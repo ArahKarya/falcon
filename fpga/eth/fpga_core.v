@@ -242,6 +242,9 @@ assign tx_ip_payload_tuser = 0;
 
 // ===========================================================================
 // FALCON DPI MODE (Fase 1) — ganti echo Fase 0.
+// Counter drop/frame MAC (diisi oleh mac_drop_counter di bawah); dideklarasikan di sini karena dipakai u_dpi lebih dulu.
+wire [31:0] mac_drop_total, mac_ovf_total, mac_bad_total, mac_ok_total;
+
 // RX: UDP payload port 2152 (GTP-U) -> falcon_dpi_wrap parser.
 // TX: telemetry datagram -> UDP ke HOST:50000.
 // ===========================================================================
@@ -415,7 +418,6 @@ gmii_phy_if_inst (
 wire rx_fifo_overflow;
 wire rx_fifo_bad_frame;
 wire rx_fifo_good_frame;
-wire [31:0] mac_drop_total, mac_ovf_total, mac_bad_total, mac_ok_total;
 mac_drop_counter u_macdrop (
     .clk(clk), .rst(rst),
     .ev_overflow(rx_fifo_overflow),
