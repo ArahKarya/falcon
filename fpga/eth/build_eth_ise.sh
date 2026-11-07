@@ -20,6 +20,7 @@ SRC=(
   "$ETH/fpga_core.v"
   "$ETH/led_status.v"
   "$ETH/lcd_status.v"
+  "$ETH/mac_drop_counter.v"
   "$EX/sync_reset.v"
   "$ETH/v5io/gmii_phy_if.v"
   "$ETH/v5io/ssio_sdr_in.v"

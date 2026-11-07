@@ -42,6 +42,12 @@ entity falcon_dpi_wrap is
     tx_sof     : out std_logic;   -- FIX: pulse 1-cyc tiap datagram baru mulai (header trigger)
     tx_len_o   : out std_logic_vector(15 downto 0);   -- FIX: len datagram aktif (utk tx_udp_length)
 
+    -- counter MAC (ekstensi GLOBAL)
+    mac_drop   : in  std_logic_vector(31 downto 0) := (others => '0');
+    mac_ovf    : in  std_logic_vector(31 downto 0) := (others => '0');
+    mac_bad    : in  std_logic_vector(31 downto 0) := (others => '0');
+    mac_ok     : in  std_logic_vector(31 downto 0) := (others => '0');
+
     -- status / debug
     dbg_teid   : out std_logic_vector(31 downto 0);
     dbg_emit   : out std_logic
@@ -74,6 +80,11 @@ architecture rtl of falcon_dpi_wrap is
       total_imsi   : in  std_logic_vector(31 downto 0);
       active_teid  : in  std_logic_vector(31 downto 0);
       rate_clear   : in  std_logic;
+      mac_drop     : in  std_logic_vector(31 downto 0);
+      mac_ovf      : in  std_logic_vector(31 downto 0);
+      mac_bad      : in  std_logic_vector(31 downto 0);
+      mac_ok       : in  std_logic_vector(31 downto 0);
+      fifo_hwm     : in  std_logic_vector(31 downto 0);
       tx_dgram     : out std_logic_vector(543 downto 0);
       tx_len       : out std_logic_vector(15 downto 0);
       tx_valid     : out std_logic
@@ -177,6 +188,8 @@ begin
       total_imsi  => (others => '0'),
       active_teid => (others => '0'),
       rate_clear  => '0',
+      mac_drop    => mac_drop, mac_ovf => mac_ovf, mac_bad => mac_bad, mac_ok => mac_ok,
+      fifo_hwm    => (others => '0'),
       tx_dgram    => tx_dgram,
       tx_len      => tx_dlen,
       tx_valid    => tx_dvalid

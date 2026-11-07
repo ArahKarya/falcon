@@ -159,10 +159,17 @@ def derive_rates(g: dict, ts: int):
             bps = db * 8 / dt
         if dd >= 0:
             ddrop = dd
-            pkts = (g.get("uplink_pps", 0) + g.get("downlink_pps", 0)) * dt
-            if pkts > 0:
-                drop_rate = min(100.0, ddrop / pkts * 100)
-    state["prev_global"] = {"ts": ts, "total_bytes": g.get("total_bytes", 0), "drop_count": g.get("drop_count", 0)}
+            if g.get("mac_counters") and prev.get("mac_ok") is not None:
+                # Counter MAC menghitung FRAME (semua yang masuk MAC), jadi pembaginya frame MAC, bukan paket GTP-U.
+                dok = g.get("mac_frames_ok", 0) - prev["mac_ok"]
+                if dok >= 0 and (dok + ddrop) > 0:
+                    drop_rate = min(100.0, ddrop / (dok + ddrop) * 100)
+            else:
+                pkts = (g.get("uplink_pps", 0) + g.get("downlink_pps", 0)) * dt
+                if pkts > 0:
+                    drop_rate = min(100.0, ddrop / pkts * 100)
+    state["prev_global"] = {"ts": ts, "total_bytes": g.get("total_bytes", 0), "drop_count": g.get("drop_count", 0),
+                            "mac_ok": g.get("mac_frames_ok") if g.get("mac_counters") else None}
     return bps, ddrop, drop_rate
 
 
@@ -508,8 +515,8 @@ async def api_measure(r):
          "note": "Jumlah byte payload GTP-U (tanpa header Ethernet/IP/UDP, yang dibuang MAC). Kumulatif sejak bitstream di-load. bps = selisih per detik."},
         {"k": "sessions", "name": "Sesi Aktif (TEID)", "unit": "TEID", "status": "sebagian",
          "note": "Jumlah TEID yang masih hidup di tabel. Gateware mengirim SAMPEL (satu datagram TEID per 64 paket, TEID paket terakhir), jadi sesi berpaket jarang bisa terlambat muncul; sesi dianggap mati setelah %d detik tanpa update. Kolom active_teid dari gateware masih 0, jadi angka ini dihitung backend." % TEID_TTL},
-        {"k": "drop", "name": "Drop", "unit": "paket", "status": "belum-ada",
-         "note": "Belum ada pendeteksi drop di gateware (pkt_drop terikat 0). Nilai 0 bukan bukti tidak ada paket hilang."},
+        {"k": "drop", "name": "Drop", "unit": "frame", "status": "sebagian",
+         "note": "Gateware menghitung frame yang dibuang di JALUR MASUK MAC: FIFO RX penuh (overflow) dan frame tak valid. Ini cakupan drop yang nyata, tetapi BUKAN seluruh kemungkinan paket hilang: paket yang hilang di kabel/switch sebelum papan, atau dibuang NIC host, tidak terlihat. Pada bitstream lama (tanpa counter MAC) nilainya selalu 0 dan itu bukan bukti tak ada drop. Dashboard menandai 'counter MAC aktif' hanya bila gateware benar-benar mengirimnya."},
         {"k": "imsi", "name": "IMSI Aktif", "unit": "pengguna", "status": "simulasi",
          "note": "Gateware belum mengekstrak IMSI (butuh parser GTP-C, Fase 2); di paket data GTP-U memang tidak ada IMSI. Saat sumber trafik BUATAN (demo/simulator), backend memberi label FIKTIF per TEID (PLMN uji 001-01) agar tampilan lengkap; ditandai SIM. Pada trafik live nilai tetap 0, tidak dikarang."},
         {"k": "protocol", "name": "Distribusi Protokol", "unit": "%", "status": "sebagian",

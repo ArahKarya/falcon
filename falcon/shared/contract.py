@@ -44,15 +44,31 @@ def parse_header(buf: bytes):
 GLOBAL_FMT = ">IIIIIQI"   # ts, total_imsi, ul_pps, dl_pps, active_teid, total_bytes(u64), drop  = 4+4+4+4+4+8+4=32
 GLOBAL_PAD = 64 - struct.calcsize(GLOBAL_FMT)
 
-def pack_global(ts, total_imsi, ul_pps, dl_pps, active_teid, total_bytes, drop):
+# Ekstensi MAC (di area padding; field lama tidak bergeser -> backend/gateware lama tetap kompatibel):
+#   mac_drop (overflow+bad), mac_ovf, mac_bad, mac_ok, fifo_hwm(cadangan)
+GLOBAL_EXT_FMT = ">IIIII"      # 20 byte, mulai di offset 32
+GLOBAL_EXT_PAD = 64 - struct.calcsize(GLOBAL_FMT) - struct.calcsize(GLOBAL_EXT_FMT)
+
+def pack_global(ts, total_imsi, ul_pps, dl_pps, active_teid, total_bytes, drop,
+                mac_drop=0, mac_ovf=0, mac_bad=0, mac_ok=0, fifo_hwm=0):
     body = struct.pack(GLOBAL_FMT, ts, total_imsi, ul_pps, dl_pps, active_teid, total_bytes, drop)
-    return make_header(TYPE_GLOBAL, body + b"\x00" * GLOBAL_PAD)
+    ext = struct.pack(GLOBAL_EXT_FMT, mac_drop, mac_ovf, mac_bad, mac_ok, fifo_hwm)
+    return make_header(TYPE_GLOBAL, body + ext + b"\x00" * GLOBAL_EXT_PAD)
 
 def unpack_global(payload):
-    ts, ti, ul, dl, at, tb, dr = struct.unpack(GLOBAL_FMT, payload[:struct.calcsize(GLOBAL_FMT)])
-    return {"type": "global", "ts": ts, "data": {
+    n = struct.calcsize(GLOBAL_FMT)
+    ts, ti, ul, dl, at, tb, dr = struct.unpack(GLOBAL_FMT, payload[:n])
+    out = {"type": "global", "ts": ts, "data": {
         "total_imsi": ti, "uplink_pps": ul, "downlink_pps": dl,
         "active_teid": at, "total_bytes": tb, "drop_count": dr}}
+    m = struct.calcsize(GLOBAL_EXT_FMT)
+    if len(payload) >= n + m:
+        md, mo, mb, mk, hw = struct.unpack(GLOBAL_EXT_FMT, payload[n:n + m])
+        # gateware lama mengirim padding nol -> semua 0; ditandai ada hanya bila ada isi
+        if any((md, mo, mb, mk, hw)):
+            out["data"].update({"mac_drop": md, "mac_overflow": mo, "mac_bad_frame": mb,
+                                "mac_frames_ok": mk, "fifo_hwm": hw, "mac_counters": True})
+    return out
 
 
 # ---------- 0x02 PER-TEID (payload 48B) ----------

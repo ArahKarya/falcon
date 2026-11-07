@@ -283,6 +283,11 @@
     <div class="kpi" data-k="dl"><div class="lbl">Downlink</div><div class="val" id="k-dl">—</div><div class="sub">paket / detik</div><svg class="spark" id="sp-dl" viewBox="0 0 64 22" preserveAspectRatio="none"></svg></div>
     <div class="kpi" data-k="teid"><div class="lbl">Sesi Aktif</div><div class="val" id="k-teid">—</div><div class="sub" id="k-teid-sub">TEID</div></div>
     <div class="kpi" data-k="drop"><div class="lbl">Drop</div><div class="val amber" id="k-drop">—</div><div class="sub" id="k-drop-sub">paket hilang</div></div>
+    <div class="kpi" id="mac-card" data-k="mac" style="display:none" title="Counter di jalur masuk MAC (gateware). Cakupan: hanya frame yang sampai ke MAC papan.">
+      <div class="lbl">Jalur MAC <span style="opacity:.6;font-weight:400">(frame)</span></div>
+      <div class="val" id="mac-ok">—</div>
+      <div class="sub">sah · overflow <b id="mac-ovf">0</b> · tak valid <b id="mac-bad">0</b> · buang <b id="mac-pct">0%</b></div>
+    </div>
     <div class="kpi" data-k="bw"><div class="lbl">Throughput GTP-U <span style="opacity:.6;font-weight:400">(payload)</span></div><div class="val" id="k-bw">—</div><div class="sub" id="k-bw-sub">akumulasi</div><svg class="spark" id="sp-bw" viewBox="0 0 64 22" preserveAspectRatio="none"></svg></div>
   </div>
 
@@ -445,6 +450,19 @@ function renderGlobal(d){
   if(d.bps!=null){ $('k-bw').textContent = fmtBps(d.bps); $('k-bw-sub').textContent = 'total '+fmtBytes(d.total_bytes); }
   else { $('k-bw').textContent = fmtBytes(d.total_bytes); }
   if(d.drop_rate!=null){ $('k-drop-sub').textContent = 'laju '+Number(d.drop_rate).toFixed(2)+'% · +'+fmt(d.drop_delta||0)+'/dtk'; }
+  // Jalur MAC: hanya tampil bila gateware benar-benar mengirim counter (bitstream baru). Bitstream lama => disembunyikan.
+  { const m = $('mac-card');
+    if(m){
+      if(d.mac_counters){
+        m.style.display = '';
+        $('mac-ok').textContent   = fmt(d.mac_frames_ok);
+        $('mac-ovf').textContent  = fmt(d.mac_overflow);
+        $('mac-bad').textContent  = fmt(d.mac_bad_frame);
+        const tot = (d.mac_frames_ok||0) + (d.mac_drop||0);
+        $('mac-pct').textContent  = tot>0 ? ((d.mac_drop||0)/tot*100).toFixed(3)+'%' : '0%';
+        $('k-drop-sub').textContent = ($('k-drop-sub').textContent||'') + ' · counter MAC aktif';
+      } else { m.style.display = 'none'; }
+    } }
   pushTs({ts:d.ts, ul:d.uplink_pps, dl:d.downlink_pps, bps:d.bps||0, dr:d.drop_rate||0});
   pushHist('ul', d.uplink_pps); pushHist('dl', d.downlink_pps); pushHist('bw', d.total_bytes);
   drawSpark('sp-ul', hist.ul, '#16C79A'); drawSpark('sp-dl', hist.dl, '#48CAE4'); drawSpark('sp-bw', hist.bw, '#9be8f7');
