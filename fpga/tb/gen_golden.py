@@ -21,6 +21,7 @@ DL_PPS      = 9500
 ACTIVE_TEID = 130
 TOTAL_BYTES = 0x0000000200000001      # u64 jelas non-trivial
 DROP        = 7
+MAC_DROP, MAC_OVF, MAC_BAD, MAC_OK, FIFO_HWM = 11, 4, 7, 123456, 0
 
 TEID        = 0xA1B2C3D4
 IMSI        = "310410123456789"        # 15 char (pad ke 16)
@@ -46,7 +47,8 @@ def main():
 
     rows = []
     rows.append(("01", C.pack_global(TS, TOTAL_IMSI, UL_PPS, DL_PPS,
-                                     ACTIVE_TEID, TOTAL_BYTES, DROP)))
+                                     ACTIVE_TEID, TOTAL_BYTES, DROP,
+                                     MAC_DROP, MAC_OVF, MAC_BAD, MAC_OK, FIFO_HWM)))
     rows.append(("02", C.pack_teid(TEID, IMSI, QFI, STATE, UL_PKTS, DL_PKTS)))
     rows.append(("03", C.pack_event(EV_TYPE, EV_DIR, EV_TEID, EV_PLEN, EV_TS)))
     rows.append(("04", C.pack_protocol(P_GTPU, P_GTPC, P_PFCP, P_BSSGP, P_OTHER)))

@@ -56,6 +56,12 @@ entity falcon_top is
     total_imsi   : in  std_logic_vector(31 downto 0);   -- dari session table (luar scope)
     active_teid  : in  std_logic_vector(31 downto 0);
     rate_clear   : in  std_logic;                       -- reset rate per interval
+    -- counter MAC (dari mac_drop_counter di fpga_core; nol bila tak dipasang)
+    mac_drop     : in  std_logic_vector(31 downto 0) := (others => '0');
+    mac_ovf      : in  std_logic_vector(31 downto 0) := (others => '0');
+    mac_bad      : in  std_logic_vector(31 downto 0) := (others => '0');
+    mac_ok       : in  std_logic_vector(31 downto 0) := (others => '0');
+    fifo_hwm     : in  std_logic_vector(31 downto 0) := (others => '0');
 
     -- TX: datagram telemetry siap kirim
     tx_dgram     : out std_logic_vector(543 downto 0);
@@ -77,6 +83,7 @@ architecture rtl of falcon_top is
 
   -- stats outputs
   signal s_ul, s_dl, s_drop                : std_logic_vector(31 downto 0);
+  signal g_drop_sum                        : std_logic_vector(31 downto 0);
   signal s_bytes                           : std_logic_vector(63 downto 0);
   signal s_gu, s_gc, s_pf, s_bs, s_ot      : std_logic_vector(31 downto 0);
 
@@ -187,7 +194,9 @@ begin
       clk=>clk, rst=>rst, msg_type=>pk_type, start=>pk_start,
       -- 0x01
       g_ts=>ts_now, g_total_imsi=>total_imsi, g_ul_pps=>s_ul, g_dl_pps=>s_dl,
-      g_active_teid=>active_teid, g_total_bytes=>s_bytes, g_drop=>s_drop,
+      g_active_teid=>active_teid, g_total_bytes=>s_bytes, g_drop=>g_drop_sum,
+      g_mac_drop=>mac_drop, g_mac_ovf=>mac_ovf, g_mac_bad=>mac_bad, g_mac_ok=>mac_ok,
+      g_fifo_hwm=>fifo_hwm,
       -- 0x02 (TEID terakhir terparse — latched; versi penuh pakai session table)
       t_teid=>evd_teid, t_imsi=>(others=>'0'), t_qfi=>(others=>'0'),
       t_state=>FALCON_ST_ACTIVE, t_ul_pkts=>s_ul, t_dl_pkts=>s_dl,
@@ -201,6 +210,10 @@ begin
 
   -- paket pk_start+GLOBAL men-sample s_ul/s_dl pada tepi yang sama dengan clear ini,
   -- jadi nilai terkirim = hitungan interval sebelumnya; paket yang tiba pas clear tetap terhitung.
+  -- field 'drop' lama = drop parser + drop MAC (saturasi agar tak membungkus ke nol)
+  g_drop_sum <= (others => '1') when (unsigned(s_drop) + unsigned(mac_drop)) < unsigned(s_drop)
+                else std_logic_vector(unsigned(s_drop) + unsigned(mac_drop));
+
   rate_clr_i <= '1' when (rate_clear = '1') or (pk_start = '1' and pk_type = FALCON_TYPE_GLOBAL) else '0';
 
   -- ---- arbiter emit (prioritas: event > teid > global > protocol) ----

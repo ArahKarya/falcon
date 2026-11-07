@@ -35,6 +35,12 @@ entity telemetry_packer is
     g_active_teid : in std_logic_vector(31 downto 0);
     g_total_bytes : in std_logic_vector(63 downto 0);
     g_drop        : in std_logic_vector(31 downto 0);
+    -- ekstensi MAC (area padding GLOBAL, offset 32..51)
+    g_mac_drop    : in std_logic_vector(31 downto 0);
+    g_mac_ovf     : in std_logic_vector(31 downto 0);
+    g_mac_bad     : in std_logic_vector(31 downto 0);
+    g_mac_ok      : in std_logic_vector(31 downto 0);
+    g_fifo_hwm    : in std_logic_vector(31 downto 0);
 
     -- ---- field 0x02 PER-TEID ----
     t_teid     : in std_logic_vector(31 downto 0);
@@ -105,7 +111,7 @@ begin
     variable pl_event  : std_logic_vector(FALCON_LEN_EVENT*8-1 downto 0);
     variable pl_proto  : std_logic_vector(FALCON_LEN_PROTOCOL*8-1 downto 0);
     -- body 'berisi' (sebelum pad nol) sesuai contract.py
-    variable body_global : std_logic_vector(32*8-1 downto 0);  -- 32B isi
+    variable body_global : std_logic_vector(52*8-1 downto 0);  -- 32B lama + 20B ekstensi MAC
     variable body_teid   : std_logic_vector(30*8-1 downto 0);  -- 30B isi
     variable body_event  : std_logic_vector(12*8-1 downto 0);  -- 12B isi
     variable body_proto  : std_logic_vector(10*8-1 downto 0);  -- 10B isi
@@ -123,7 +129,8 @@ begin
           --------------------------------------------------------------------
           when FALCON_TYPE_GLOBAL =>
             body_global := g_ts & g_total_imsi & g_ul_pps & g_dl_pps &
-                           g_active_teid & g_total_bytes & g_drop;  -- 4+4+4+4+4+8+4 = 32B
+                           g_active_teid & g_total_bytes & g_drop &   -- 4+4+4+4+4+8+4 = 32B
+                           g_mac_drop & g_mac_ovf & g_mac_bad & g_mac_ok & g_fifo_hwm;  -- +20B
             pl_global := pad_to(body_global, FALCON_LEN_GLOBAL);
             dgram_r <= frame(FALCON_TYPE_GLOBAL, FALCON_LEN_GLOBAL, pl_global);
             len_r   <= to_unsigned(FALCON_HDR_LEN + FALCON_LEN_GLOBAL, 16);

@@ -78,3 +78,12 @@ NET "lcd_db[4]"  LOC = "AB6" | IOSTANDARD = LVCMOS25 | SLEW = SLOW | DRIVE = 4;
 NET "lcd_db[5]"  LOC = "AC5" | IOSTANDARD = LVCMOS25 | SLEW = SLOW | DRIVE = 4;
 NET "lcd_db[6]"  LOC = "AC7" | IOSTANDARD = LVCMOS25 | SLEW = SLOW | DRIVE = 4;
 NET "lcd_db[7]"  LOC = "AD7" | IOSTANDARD = LVCMOS25 | SLEW = SLOW | DRIVE = 4;
+
+#-----------------------------------------------------------------------------
+# Audio codec LM4550 (AC97) — Genesys Reference Manual hlm.15-16, semua LVCMOS33.
+# Dikunci DIAM di RTL (aud_reset_n=1, aud_sync=0, aud_sdo=0). Jangan hapus: tanpa ini pin
+# tak terpakai ber-pull-down -> RESET codec tertahan rendah -> dengung di jack audio.
+#-----------------------------------------------------------------------------
+NET "aud_reset_n" LOC = "E12"  | IOSTANDARD = LVCMOS33 | DRIVE = 4 | SLEW = SLOW;
+NET "aud_sync"    LOC = "J9"   | IOSTANDARD = LVCMOS33 | DRIVE = 4 | SLEW = SLOW;
+NET "aud_sdo"     LOC = "AG20" | IOSTANDARD = LVCMOS33 | DRIVE = 4 | SLEW = SLOW;

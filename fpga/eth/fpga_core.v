@@ -242,6 +242,9 @@ assign tx_ip_payload_tuser = 0;
 
 // ===========================================================================
 // FALCON DPI MODE (Fase 1) — ganti echo Fase 0.
+// Counter drop/frame MAC (diisi oleh mac_drop_counter di bawah); dideklarasikan di sini karena dipakai u_dpi lebih dulu.
+wire [31:0] mac_drop_total, mac_ovf_total, mac_bad_total, mac_ok_total;
+
 // RX: UDP payload port 2152 (GTP-U) -> falcon_dpi_wrap parser.
 // TX: telemetry datagram -> UDP ke HOST:50000.
 // ===========================================================================
@@ -277,6 +280,8 @@ falcon_dpi_wrap u_dpi (
     .tx_busy(w_tx_busy),
     .tx_sof(w_tx_sof),
     .tx_len_o(w_tx_len),
+    .mac_drop(mac_drop_total), .mac_ovf(mac_ovf_total),
+    .mac_bad(mac_bad_total),   .mac_ok(mac_ok_total),
     .dbg_teid(), .dbg_emit()
 );
 
@@ -409,6 +414,21 @@ gmii_phy_if_inst (
     .mii_select(1'b0)
 );
 
+// Status FIFO RX -> counter drop/frame (domain logic_clk, pulsa 1 siklus).
+wire rx_fifo_overflow;
+wire rx_fifo_bad_frame;
+wire rx_fifo_good_frame;
+mac_drop_counter u_macdrop (
+    .clk(clk), .rst(rst),
+    .ev_overflow(rx_fifo_overflow),
+    .ev_bad_frame(rx_fifo_bad_frame),
+    .ev_good_frame(rx_fifo_good_frame),
+    .drop_total(mac_drop_total),
+    .overflow_total(mac_ovf_total),
+    .bad_total(mac_bad_total),
+    .frames_ok(mac_ok_total)
+);
+
 eth_mac_1g_fifo #(
     .ENABLE_PADDING(1),
     .MIN_FRAME_LENGTH(64),
@@ -444,6 +464,9 @@ eth_mac_1g_fifo_inst (
 
     .rx_error_bad_frame(rx_error_bad_frame),
     .rx_error_bad_fcs(rx_error_bad_fcs),
+    .rx_fifo_overflow(rx_fifo_overflow),
+    .rx_fifo_bad_frame(rx_fifo_bad_frame),
+    .rx_fifo_good_frame(rx_fifo_good_frame),
 
     .ifg_delay(12)
 );

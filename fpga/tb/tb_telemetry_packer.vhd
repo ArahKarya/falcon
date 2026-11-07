@@ -28,6 +28,7 @@ architecture sim of tb_telemetry_packer is
 
   -- field 0x01
   signal g_ts, g_total_imsi, g_ul_pps, g_dl_pps, g_active_teid, g_drop : std_logic_vector(31 downto 0) := (others=>'0');
+  signal g_mac_drop, g_mac_ovf, g_mac_bad, g_mac_ok, g_fifo_hwm : std_logic_vector(31 downto 0) := (others=>'0');
   signal g_total_bytes : std_logic_vector(63 downto 0) := (others=>'0');
   -- field 0x02
   signal t_teid, t_ul_pkts, t_dl_pkts : std_logic_vector(31 downto 0) := (others=>'0');
@@ -60,6 +61,7 @@ begin
       clk=>clk, rst=>rst, msg_type=>msg_type, start=>start,
       g_ts=>g_ts, g_total_imsi=>g_total_imsi, g_ul_pps=>g_ul_pps, g_dl_pps=>g_dl_pps,
       g_active_teid=>g_active_teid, g_total_bytes=>g_total_bytes, g_drop=>g_drop,
+      g_mac_drop=>g_mac_drop, g_mac_ovf=>g_mac_ovf, g_mac_bad=>g_mac_bad, g_mac_ok=>g_mac_ok, g_fifo_hwm=>g_fifo_hwm,
       t_teid=>t_teid, t_imsi=>t_imsi, t_qfi=>t_qfi, t_state=>t_state,
       t_ul_pkts=>t_ul_pkts, t_dl_pkts=>t_dl_pkts,
       e_type=>e_type, e_dir=>e_dir, e_teid=>e_teid, e_plen=>e_plen, e_ts=>e_ts,
@@ -179,6 +181,11 @@ begin
     g_active_teid <= std_logic_vector(to_unsigned(130, 32));
     g_total_bytes <= x"0000000200000001";
     g_drop        <= std_logic_vector(to_unsigned(7, 32));
+    g_mac_drop    <= std_logic_vector(to_unsigned(11, 32));
+    g_mac_ovf     <= std_logic_vector(to_unsigned(4, 32));
+    g_mac_bad     <= std_logic_vector(to_unsigned(7, 32));
+    g_mac_ok      <= std_logic_vector(to_unsigned(123456, 32));
+    g_fifo_hwm    <= std_logic_vector(to_unsigned(0, 32));
     -- 0x02 TEID
     t_teid    <= x"A1B2C3D4";
     t_imsi    <= IMSI16;
