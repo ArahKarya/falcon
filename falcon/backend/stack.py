@@ -10,6 +10,8 @@ import json
 import os
 import time
 
+import termlog
+
 STACK_DIR = os.environ.get("FALCON_STACK_DIR", "").strip()
 CTL = os.environ.get("FALCON_STACKCTL",
                      os.path.join(os.path.dirname(__file__), "..", "..", "scripts", "stack", "stackctl.sh"))
@@ -34,6 +36,11 @@ def _set(phase: str, msg: str = "") -> None:
 async def _run(action: str, *args: str, timeout: int = 120):
     assert action in _ALLOWED
     env = dict(os.environ, FALCON_STACK_DIR=STACK_DIR)
+    if action != "status":
+        # up/capture/down: alirkan keluaran stackctl baris demi baris ke terminal Setup.
+        termlog.add("stack", "$ stackctl %s %s" % (action, " ".join(args)), "info")
+        rc, tail = await termlog.stream_proc("stack", "bash", CTL, action, *args, env=env, timeout=timeout)
+        return rc, "", tail
     p = await asyncio.create_subprocess_exec(
         "bash", CTL, action, *args, env=env,
         stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
@@ -68,6 +75,7 @@ async def prepare(keep_running: bool, secs: int = 12, pps: int = 120) -> None:
     async with _lock:
         try:
             _set("up", "menyalakan EPC + eNB + UE (±40-60 dtk)")
+            termlog.add("stack", "== SIAPKAN STACK LTE dimulai ==", "info")
             rc, _, err = await _run("up", timeout=240)
             if rc != 0:
                 _set("error", "gagal menyalakan stack: " + (err.splitlines()[-1] if err else "rc=%d" % rc))
@@ -81,6 +89,7 @@ async def prepare(keep_running: bool, secs: int = 12, pps: int = 120) -> None:
                 _set("down", "tangkapan selesai; mematikan stack (hemat RAM)")
                 await _run("down", timeout=90)
             _set("done", "siap diputar ulang ke board")
+            termlog.add("stack", "== SELESAI: tangkapan siap diputar ulang ke board ==", "ok")
         finally:
             _cache["t"] = 0.0
 

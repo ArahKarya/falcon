@@ -207,6 +207,19 @@ The gateware does not fill `total_imsi` or `active_teid` yet (needs a session ta
 
 Checks: `scripts/test_session_imsi.sh` (23: labels only on synthetic sources, none on live traffic, gateware values never overwritten, TTL expiry).
 
+### Process terminal (Setup pages only)
+
+Setup FPGA and Setup Traffic show a live, **read-only** terminal of what is happening to the board, so an operator can follow a gateware load step by step instead of waiting for a final "done".
+
+| What | Where it comes from |
+|---|---|
+| iMPACT / `fpgactl.sh` output | Streamed **line by line while it runs** (cable found, chain read, `xc5vlx50t` detected, programmed, DONE pin, telemetry back). iMPACT's preference table and version noise is filtered, key lines are summarised in Indonesian. |
+| `stackctl.sh` output | Same, for the LTE stack (up / capture / down). |
+| Board link | One line **only when the state changes** (connected / lost), never every second. |
+| Traffic source | Active / pause phases and stop events. |
+
+Safety: no command box and no endpoint that takes a command (the browser cannot run anything); every line is filtered before it is stored (IMSI masked to 3 digits, passwords / tokens / bearer values removed, host paths shortened); kept in memory only (500 lines, lost on restart); reachable only after login (`/api/setup/log`, not in the public path list), and only operators may clear it. The main dashboard has no terminal. Checks: `scripts/test_term.sh` (38).
+
 ### LTE stack source
 
 *Setup Traffic → Stack LTE simulasi* prepares the simulated network, captures real GTP-U from its S1-U interface, and replays that capture to the board.

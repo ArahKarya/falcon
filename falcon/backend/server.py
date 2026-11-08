@@ -13,6 +13,7 @@ from aiohttp import web
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from shared import contract as C
 import auth
+import termlog
 import stack
 import fpga
 import gtpu_pcap
@@ -310,11 +311,22 @@ def link_status():
             "last_rx": state["last_rx"] or None}
 
 
+_link_prev = [None]
+
+
 async def link_watcher():
     """Broadcast status link FPGA ~1Hz; UI menampilkan Disconnected bila board diam (>LINK_TIMEOUT)."""
     while True:
         await asyncio.sleep(1.0)
-        await broadcast({"type": "link", "data": link_status()})
+        lk = link_status()
+        await broadcast({"type": "link", "data": lk})
+        cur = bool(lk["connected"])
+        if _link_prev[0] is not None and cur != _link_prev[0]:      # catat hanya saat BERUBAH
+            if cur:
+                termlog.add("link", "Papan TERHUBUNG: telemetri UDP :%d masuk" % UDP_PORT, "ok")
+            else:
+                termlog.add("link", "Papan TERPUTUS: tidak ada telemetri > %.0f dtk" % LINK_TIMEOUT, "warn")
+        _link_prev[0] = cur
 
 
 def snapshot():
@@ -420,6 +432,7 @@ async def demo_traffic_task(on_s: int, off_s: int, pps: int, source: str = "synt
     try:
         while True:
             demo["active"] = True
+            termlog.add("traffic", "Fase AKTIF %d dtk @ ~%d pps -> %s (%s)" % (on_s, pps, DEMO_TARGET, source), "info")
             end = loop.time() + on_s
             demo["next_flip"] = int(time.time() + on_s)
             gap = 1.0 / pps
@@ -438,9 +451,11 @@ async def demo_traffic_task(on_s: int, off_s: int, pps: int, source: str = "synt
                 continue
             demo["active"] = False
             demo["next_flip"] = int(time.time() + off_s)
+            termlog.add("traffic", "Fase JEDA %d dtk (terkirim total %d paket)" % (off_s, demo["sent"]), "info")
             await asyncio.sleep(off_s)
     finally:
         demo.update({"enabled": False, "active": False})
+        termlog.add("traffic", "Sumber traffic dihentikan", "warn")
         sock.close()
 
 
@@ -457,6 +472,7 @@ async def _sim5g_loop(on_s: int, off_s: int, host: str, port: int):
     try:
         while True:
             demo["active"] = True
+            termlog.add("traffic", "Simulator 5G AKTIF %d dtk: %d sesi, ~%.0f pps" % (on_s, len(g.sessions), g.pps), "info")
             demo["next_flip"] = int(time.time() + on_s)
             end = loop.time() + on_s
             nxt = loop.time()
@@ -474,9 +490,11 @@ async def _sim5g_loop(on_s: int, off_s: int, host: str, port: int):
                 continue
             demo["active"] = False
             demo["next_flip"] = int(time.time() + off_s)
+            termlog.add("traffic", "Simulator 5G JEDA %d dtk (terkirim total %d paket)" % (off_s, demo["sent"]), "info")
             await asyncio.sleep(off_s)
     finally:
         demo.update({"enabled": False, "active": False})
+        termlog.add("traffic", "Simulator 5G dihentikan", "warn")
         sock.close()
 
 
@@ -738,6 +756,7 @@ async def api_sim5g_status(r):
 
 
 async def api_traffic_stop(r):
+    termlog.add("traffic", "Operator menghentikan sumber traffic", "warn")
     demo_stop()
     return web.json_response({"ok": True, "demo": demo})
 
@@ -766,8 +785,29 @@ async def api_fpga_load(r):
     if link_status().get("connected"):
         # papan sudah hidup dan mengirim telemetri: jangan reprogram tanpa perlu (menghindari TX bisu)
         return web.json_response({"ok": False, "error": "papan sudah terhubung; pemuatan ulang tidak diperlukan"}, status=409)
+    termlog.add("fpga", "Operator %s memicu Muat gateware" % r["sess"]["user"], "info")
     asyncio.ensure_future(fpga.load())
     return web.json_response({"ok": True, "job": fpga.job})
+
+
+async def api_term_log(r):
+    """Terminal Setup: baris log sejak id tertentu. Wajib login (middleware gate); TIDAK ada di OPEN_PATHS."""
+    try:
+        since = int(r.query.get("since", "0"))
+    except ValueError:
+        since = 0
+    src = r.query.get("src") or None
+    if src is not None and src not in ("fpga", "traffic", "stack", "link", "sistem"):
+        src = None
+    rows = termlog.since(since, src)
+    return web.json_response({"rows": rows, "last": rows[-1]["id"] if rows else since,
+                              "readonly": True, "cap": termlog.MAX_LINES})
+
+
+async def api_term_clear(r):
+    termlog.clear()
+    termlog.add("sistem", "Terminal dibersihkan oleh %s" % r["sess"]["user"], "info")
+    return web.json_response({"ok": True})
 
 
 async def api_stack_stop(r):
@@ -810,6 +850,7 @@ async def on_startup(app):
     loop = asyncio.get_event_loop()
     await loop.create_datagram_endpoint(lambda: TelemetryProto(loop),
                                         local_addr=("0.0.0.0", UDP_PORT))
+    termlog.add("sistem", "Backend FALCON aktif: UDP :%d, mode=%s" % (UDP_PORT, MODE), "ok")
     asyncio.ensure_future(link_watcher())
     if DEMO_SPEC and DEMO_SPEC.lower() != "off":
         try:
@@ -834,6 +875,8 @@ def make_app():
         web.get("/api/me", api_me),
         web.get("/api/setup/fpga", api_setup_fpga),
         web.get("/api/setup/traffic", api_setup_traffic),
+        web.get("/api/setup/log", api_term_log),
+        web.post("/api/setup/log/clear", api_term_clear),
         web.post("/api/traffic/start", api_traffic_start),
         web.post("/api/traffic/stop", api_traffic_stop),
         web.post("/api/sim5g/inject", api_sim5g_inject),
