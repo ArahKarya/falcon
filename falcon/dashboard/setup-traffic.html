@@ -96,8 +96,10 @@
     </table>
     <div class="note">Jangan jalankan sumber sintetis bersamaan dengan trafik live: angka akan tercampur dan tidak lagi mencerminkan jaringan nyata.</div>
   </div>
+  <div id="term" data-src="traffic,stack,link,sistem"></div>
 </div>
 <script src="/static/nav.js"></script>
+<script src="/static/term.js"></script>
 <script>
 const esc = s => String(s==null?'—':s).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const SRC = {ready:['ok','Siap'], manual:['warn','Manual'], 'not-installed':['off','Belum terpasang'], running:['ok','Berjalan'], partial:['warn','Sebagian'], stopped:['off','Berhenti'], error:['bad','Galat']};

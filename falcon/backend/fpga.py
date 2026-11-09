@@ -10,6 +10,8 @@ import json
 import os
 import time
 
+import termlog
+
 CTL = os.environ.get("FALCON_FPGACTL", "").strip()
 job = {"phase": "idle", "msg": "", "since": 0, "log": []}
 _cache = {"t": 0.0, "v": None}
@@ -28,6 +30,10 @@ def _set(phase: str, msg: str = "") -> None:
 
 async def _run(action: str, timeout: int):
     assert action in ("status", "load")
+    if action == "load":
+        # Alirkan keluaran iMPACT/fpgactl BARIS DEMI BARIS ke terminal Setup selagi berjalan.
+        rc, tail = await termlog.stream_proc("fpga", "bash", CTL, action, timeout=timeout)
+        return rc, "", tail
     p = await asyncio.create_subprocess_exec(
         "bash", CTL, action, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
     try:
@@ -73,11 +79,14 @@ async def load() -> None:
     async with _lock:
         try:
             _set("loading", "memuat gateware ke papan lewat JTAG (±40 dtk)")
+            termlog.add("fpga", "== MUAT GATEWARE dimulai oleh operator ==", "info")
             rc, _, err = await _run("load", 150)
             if rc == 0:
+                termlog.add("fpga", "== SELESAI: gateware termuat dan telemetri masuk ==", "ok")
                 _set("done", "gateware termuat dan telemetri masuk")
             else:
                 tail = err.splitlines()[-1] if err else ""
+                termlog.add("fpga", "== GAGAL (kode %d): %s ==" % (rc, _WHY.get(rc, "lihat baris di atas")), "err")
                 _set("error", "%s%s" % (_WHY.get(rc, "gagal (kode %d)" % rc), (" — " + tail[:90]) if tail else ""))
         finally:
             _cache["t"] = 0.0

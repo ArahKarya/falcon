@@ -71,3 +71,24 @@ code{ font-family:'JetBrains Mono',monospace; font-size:11.5px; background:var(-
         padding:11px 13px; font-size:12px; color:#e8b8b0; line-height:1.55; margin-bottom:6px; }
 .guard b{ color:#fff; }
 .foot{ text-align:center; color:var(--mut); font-size:11px; margin-top:20px; }
+
+/* Terminal proses (Setup) — hanya baca */
+.term-panel h3{ flex-wrap:wrap; }
+.term-tools{ margin-left:auto; display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+.tbtn{ font-size:11px; color:var(--mut); padding:4px 10px; border:1px solid var(--line); border-radius:4px; background:transparent; cursor:pointer; }
+.tbtn:hover{ color:#fff; border-color:var(--cyan); }
+.tf{ display:inline-flex; gap:4px; align-items:center; margin:0; font-size:10px; letter-spacing:.6px; text-transform:none; cursor:pointer; color:var(--mut); }
+.tf input{ width:auto; accent-color:var(--teal); margin:0; }
+.term{ background:#070d19; border:1px solid var(--line); border-radius:4px; height:300px; overflow-y:auto; padding:8px 0;
+       font-family:'JetBrains Mono','SFMono-Regular',Consolas,monospace; font-size:11.5px; line-height:1.55; }
+.tl{ display:flex; gap:10px; padding:1px 12px; white-space:pre-wrap; word-break:break-word; }
+.tl:hover{ background:rgba(72,202,228,.05); }
+.tt{ color:#5d708c; flex:0 0 auto; }
+.ts{ flex:0 0 58px; font-weight:700; font-size:10px; padding-top:1px; letter-spacing:.5px; }
+.tx{ flex:1 1 auto; color:#b6c6da; }
+.tx.dim{ color:var(--mut); font-style:italic; }
+.s-fpga{ color:var(--cyan); } .s-traffic{ color:var(--amber); } .s-stack{ color:#b58cff; } .s-link{ color:var(--teal); } .s-sistem{ color:var(--mut); }
+.l-ok .tx{ color:var(--teal); } .l-warn .tx{ color:var(--amber); } .l-err .tx{ color:var(--red); font-weight:600; }
+.l-err{ background:rgba(224,83,63,.07); }
+.term-foot{ margin-top:8px; font-size:10.5px; color:var(--mut); }
+@media(max-width:620px){ .term{ height:240px; font-size:10.5px; } .ts{ flex-basis:48px; } .tt{ display:none; } }
